@@ -3,43 +3,118 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DNS Arena</title>
 <style>
-:root{--bg:#0e1116;--panel:#161b22;--line:#262d37;--text:#e6edf3;--mute:#8b96a5;--accent:#4ea1ff;--bar:#2f81f7;--good:#3fb950;--warn:#d29922}
-@media (prefers-color-scheme:light){:root{--bg:#f6f8fa;--panel:#fff;--line:#d8dee4;--text:#1f2328;--mute:#656d76;--accent:#0969da;--bar:#0969da}}
+:root{--bg:#0e1116;--panel:#161b22;--line:#262d37;--grid:#20262f;--text:#e6edf3;--mute:#8b96a5;--accent:#4ea1ff;--bar:#2f81f7;--good:#3fb950;--warn:#d29922;
+  --c1:#3987e5;--c2:#d95926;--c3:#199e70;--cx:#8b96a5}
+@media (prefers-color-scheme:light){:root{--bg:#f6f8fa;--panel:#fff;--line:#d8dee4;--grid:#eaeef2;--text:#1f2328;--mute:#656d76;--accent:#0969da;--bar:#0969da;
+  --c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--cx:#656d76}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}
 main{max-width:1200px;margin:0 auto;padding:24px 16px 64px}
 h1{margin:0 0 4px;font-size:26px}.sub{color:var(--mute);margin:0 0 20px}
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:16px;min-width:0}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
 .label{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.05em;min-width:90px}
 .chip{border:1px solid var(--line);background:transparent;color:var(--text);padding:4px 10px;border-radius:999px;cursor:pointer;font:inherit}
 .chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
 select,input{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
-button.link{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit}
+input[type=search]{min-width:min(320px,100%)}
+button.link{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit;padding:4px 2px}
+button.adv{background:transparent;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+button.adv[aria-expanded=true]{border-color:var(--accent);color:var(--accent)}
+.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:var(--accent);color:#fff;font-size:11px;text-align:center}
+.advbox{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 .cfgf{display:inline-flex;gap:6px;align-items:center;background:var(--bg);border:1px solid var(--accent);border-radius:999px;padding:2px 4px 2px 10px}
 .cfgf button{background:none;border:0;color:var(--mute);cursor:pointer;font-size:16px}
+.plot h2{margin:0 0 2px;font-size:15px}.plot .cap{color:var(--mute);font-size:12px;margin-bottom:6px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--mute);margin:4px 0 6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.legend i.hollow{background:transparent!important;border:2px solid var(--mute)}
+svg{display:block;width:100%;height:auto;overflow:visible}svg text{fill:var(--mute);font-size:11px;font-family:inherit}
+svg .pt{cursor:pointer}svg .pt:focus-visible{outline:none;stroke:var(--text);stroke-width:2}
+.tt{position:fixed;pointer-events:none;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.3);max-width:300px;z-index:5;display:none}
+.tt .m{font-variant-numeric:tabular-nums}.tt .d{color:var(--mute);margin-top:2px}
 .tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
-table{border-collapse:collapse;width:100%;min-width:860px}
+table{border-collapse:collapse;width:100%;min-width:560px}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
 th{color:var(--mute);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;user-select:none;white-space:nowrap}
 th.s{color:var(--text)}tr.d{cursor:pointer}tr.d:hover td{background:rgba(127,127,127,.07)}
+tr.d.sel td{background:rgba(78,161,255,.10)}tr.d.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 .rank{font-weight:700;color:var(--mute);width:40px}.r1{color:#e3b341}.r2{color:#b1bac4}.r3{color:#c9824b}
 .num{font-variant-numeric:tabular-nums;text-align:right}th.num{text-align:right}
 .bar{height:6px;background:var(--line);border-radius:3px;margin-top:4px;min-width:140px}.bar i{display:block;height:100%;background:var(--bar);border-radius:3px}
 .pill{display:inline-block;border:1px solid var(--line);border-radius:4px;padding:0 6px;margin:1px 3px 1px 0;font-size:12px;color:var(--mute)}
 .pill b{color:var(--text);font-weight:600}
 .sample{background:var(--warn);color:#000;font-size:10px;border-radius:3px;padding:1px 5px;margin-left:6px;vertical-align:middle}
-tr.x td{background:rgba(127,127,127,.05);font-size:13px}
+tr.x td{background:rgba(127,127,127,.05);font-size:13px;cursor:default}
 h3{margin:14px 0 6px;font-size:13px}.st{font-weight:600;margin:8px 0 2px}pre{margin:0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;overflow-x:auto;font-size:12px;white-space:pre}
 .note{margin-top:10px;padding:8px 10px;border:1px solid var(--line);border-left:3px solid var(--warn,#d29922);border-radius:6px;font-size:13px;color:var(--text)}
 .empty{padding:30px;text-align:center;color:var(--mute)}
 .small{color:var(--mute);font-size:12px}
-</style></head><body><main>
+.top{display:flex;align-items:center;gap:16px;margin-bottom:20px}.top>div{min-width:0}.top .sub{margin:0}
+.logo-fixed{flex:none;width:clamp(48px,8vw,120px);height:auto;aspect-ratio:1}
+</style></head><body>
+
+<main>
+<header class="top">
+<svg class="logo-fixed" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="DNS Arena logo">
+  <defs>
+    <linearGradient id="la-side" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity=".45"/><stop offset=".35" stop-color="#fff" stop-opacity=".12"/>
+      <stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="la-rim" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff" stop-opacity=".1"/>
+    </linearGradient>
+    <radialGradient id="la-floor" cx=".5" cy=".4" r=".7">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="50" cy="71" rx="48" ry="11" fill="#000" opacity=".18"/>
+  <!-- outer wall -->
+  <path d="M5 40V68A45 20 0 0 0 95 68V40Z" fill="#b5442c"/>
+  <path d="M5 40V68A45 20 0 0 0 95 68V40Z" fill="url(#la-side)"/>
+  <g fill="#000" opacity=".5"><path d="M8.0 71.2V64.1A2.0 2.0 0 0 1 12.0 64.1V71.2Z"/><path d="M15.2 76.1V69.9A2.8 2.8 0 0 1 20.8 69.9V76.1Z"/><path d="M22.7 78.9V73.2A3.3 3.3 0 0 1 29.3 73.2V78.9Z"/><path d="M30.4 80.7V75.3A3.6 3.6 0 0 1 37.6 75.3V80.7Z"/><path d="M38.3 81.7V76.4A3.7 3.7 0 0 1 45.7 76.4V81.7Z"/><path d="M46.2 82.0V76.8A3.8 3.8 0 0 1 53.8 76.8V82.0Z"/><path d="M54.3 81.7V76.4A3.7 3.7 0 0 1 61.7 76.4V81.7Z"/><path d="M62.4 80.7V75.3A3.6 3.6 0 0 1 69.6 75.3V80.7Z"/><path d="M70.7 78.9V73.2A3.3 3.3 0 0 1 77.3 73.2V78.9Z"/><path d="M79.2 76.1V69.9A2.8 2.8 0 0 1 84.8 69.9V76.1Z"/><path d="M88.0 71.2V64.1A2.0 2.0 0 0 1 92.0 64.1V71.2Z"/><path d="M8.0 59.2V53.1A2.0 2.0 0 0 1 12.0 53.1V59.2Z"/><path d="M15.2 64.1V58.9A2.8 2.8 0 0 1 20.8 58.9V64.1Z"/><path d="M22.7 66.9V62.2A3.3 3.3 0 0 1 29.3 62.2V66.9Z"/><path d="M30.4 68.7V64.3A3.6 3.6 0 0 1 37.6 64.3V68.7Z"/><path d="M38.3 69.7V65.4A3.7 3.7 0 0 1 45.7 65.4V69.7Z"/><path d="M46.2 70.0V65.8A3.8 3.8 0 0 1 53.8 65.8V70.0Z"/><path d="M54.3 69.7V65.4A3.7 3.7 0 0 1 61.7 65.4V69.7Z"/><path d="M62.4 68.7V64.3A3.6 3.6 0 0 1 69.6 64.3V68.7Z"/><path d="M70.7 66.9V62.2A3.3 3.3 0 0 1 77.3 62.2V66.9Z"/><path d="M79.2 64.1V58.9A2.8 2.8 0 0 1 84.8 58.9V64.1Z"/><path d="M88.0 59.2V53.1A2.0 2.0 0 0 1 92.0 53.1V59.2Z"/></g>
+  <path d="M5 51A45 20 0 0 0 95 51" stroke="#000" stroke-opacity=".3" stroke-width="1.2"/>
+  <!-- rim and inner bowl -->
+  <ellipse cx="50" cy="40" rx="45" ry="20" fill="#b5442c"/>
+  <ellipse cx="50" cy="40" rx="45" ry="20" fill="url(#la-rim)"/>
+  <ellipse cx="50" cy="41" rx="38" ry="15.5" fill="#000" opacity=".4"/>
+  <ellipse cx="50" cy="43" rx="33" ry="12.5" fill="#b5442c"/>
+  <ellipse cx="50" cy="43" rx="33" ry="12.5" fill="url(#la-floor)"/>
+  <ellipse cx="50" cy="40" rx="45" ry="20" stroke="#fff" stroke-opacity=".5" stroke-width="1"/>
+  <!-- fighters on the arena floor -->
+  <ellipse cx="36" cy="48" rx="9" ry="2.4" fill="#000" opacity=".35"/>
+  <ellipse cx="64" cy="48" rx="9" ry="2.4" fill="#000" opacity=".35"/>
+  <g transform="translate(29 31) scale(.5)">
+    <polygon points="0,2 8,5 8,26 0,22" fill="#1b2a6b"/>
+    <polygon points="8,5 12,3 12,18 8,26" fill="#1f3fa0"/>
+    <polygon points="8,5 20,16 20,28 8,17" fill="#2fc1d3"/>
+    <polygon points="20,0 28,3 28,26 20,28" fill="#1f5fd0"/>
+  </g>
+  <g transform="translate(64 38)">
+    <circle r="8" fill="#1a4fa8" stroke="#fff" stroke-opacity=".6" stroke-width=".6"/>
+    <g stroke="#fff" stroke-width="1.3" fill="none">
+      <ellipse rx="6" ry="2.7"/><ellipse rx="6" ry="2.7" transform="rotate(60)"/><ellipse rx="6" ry="2.7" transform="rotate(120)"/>
+    </g>
+  </g>
+</svg>
+<div>
 <h1>DNS Arena</h1>
-<p class="sub">Rankings of DNS server configurations by max sustainable QPS. Filter by hardware, software and configured values.</p>
+<p class="sub">Rankings of DNS server configurations by max sustainable QPS. Select a row to see its configuration and how to reproduce it.</p>
+</div>
+</header>
+
+<div class="panel plot">
+  <h2>Max QPS over time</h2>
+  <div class="cap" id="plotcap"></div>
+  <div class="legend" id="legend"></div>
+  <div id="plot"></div>
+</div>
+
 <div class="panel" id="filters"></div>
 <div class="tw"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
 <p class="small" id="count"></p>
 </main>
+<div class="tt" id="tt" role="status"></div>
 <script src="results.js"></script>
 <script>
 const R = window.RESULTS;
@@ -47,15 +122,13 @@ const COLS = [
   {k:"rank",l:"#"},
   {k:"software",l:"Software",v:r=>r.software},
   {k:"hardware",l:"Hardware",v:r=>r.hardware.name},
-  {k:"config",l:"Config"},
   {k:"qps",l:"Max QPS",v:r=>r.metrics.max_qps,num:1},
-  {k:"p99",l:"p99 (ms)",v:r=>r.metrics.p99_ms,num:1},
-  {k:"ans",l:"Answered %",v:r=>r.metrics.answer_rate,num:1},
 ];
-// state lives in the URL hash: #sort=qps:-1&sw=bind,knot&hw=m400-arm&cfg=xdp=true;threads=8&q=text
-let st = {sort:"qps",dir:-1,sw:[],hw:[],cfg:[],q:""}, open = new Set();
+// state lives in the URL hash: #sort=qps:-1&adv=1&sw=bind,knot&hw=m400-arm&cfg=xdp=true;threads=8&q=text
+let st = {sort:"qps",dir:-1,adv:false,sw:[],hw:[],cfg:[],q:""}, open = new Set();
 const uniq = a => [...new Set(a)].sort();
 const fmt = v => typeof v==="number" ? v.toLocaleString() : String(v);
+const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
 
 function load(){
   const p = new URLSearchParams(location.hash.slice(1));
@@ -64,15 +137,18 @@ function load(){
   st.hw=(p.get("hw")||"").split(",").filter(Boolean);
   st.cfg=(p.get("cfg")||"").split(";").filter(Boolean).map(s=>s.split("="));
   st.q=p.get("q")||"";
+  // a link that carries advanced filters opens the advanced panel so they are visible
+  st.adv = p.get("adv")==="1" || st.sw.length>0 || st.hw.length>0 || st.cfg.length>0;
 }
 function save(){
   const p=new URLSearchParams();
   p.set("sort",st.sort+":"+st.dir);
+  if(st.adv)p.set("adv","1");
   if(st.sw.length)p.set("sw",st.sw.join(","));
   if(st.hw.length)p.set("hw",st.hw.join(","));
   if(st.cfg.length)p.set("cfg",st.cfg.map(c=>c.join("=")).join(";"));
   if(st.q)p.set("q",st.q);
-  history.replaceState(null,"","#"+p);
+  try{history.replaceState(null,"","#"+p)}catch(_){}   // some browsers refuse this on file:// pages
 }
 function toggle(arr,v){const i=arr.indexOf(v);i<0?arr.push(v):arr.splice(i,1)}
 const match = r =>
@@ -83,76 +159,158 @@ const match = r =>
 
 function chips(label,vals,sel,key){
   return `<div class="row"><span class="label">${label}</span>`+vals.map(v=>
-    `<button class="chip ${sel.includes(v)?"on":""}" data-t="${key}" data-v="${v}">${v}</button>`).join("")+`</div>`;
+    `<button class="chip ${sel.includes(v)?"on":""}" data-t="${key}" data-v="${esc(v)}" aria-pressed="${sel.includes(v)}">${esc(v)}</button>`).join("")+`</div>`;
 }
 function renderFilters(){
-  // config keys/values offered depend on the currently selected software/hardware
-  const base = R.filter(r=>(!st.sw.length||st.sw.includes(r.software))&&(!st.hw.length||st.hw.includes(r.hardware.name)));
-  const keys = uniq(base.flatMap(r=>Object.keys(r.config)));
-  const hwInfo = h=>{const r=R.find(x=>x.hardware.name===h).hardware;return `${h}`};
-  let h = chips("Hardware",uniq(R.map(r=>r.hardware.name)),st.hw,"hw")
-        + chips("DNS software",uniq(R.map(r=>r.software)),st.sw,"sw");
-  h += `<div class="row"><span class="label">Config value</span>
-    <select id="ck"><option value="">key…</option>${keys.map(k=>`<option>${k}</option>`).join("")}</select>
-    <select id="cv" disabled><option value="">value…</option></select>`
-    + st.cfg.map((c,i)=>`<span class="cfgf">${c[0]} = <b>${c[1]}</b><button data-rm="${i}" title="remove">×</button></span>`).join("")
-    + `</div><div class="row"><span class="label">Search</span><input id="q" placeholder="cpu, nic, version…" value="${st.q}">
+  const active = st.sw.length + st.hw.length + st.cfg.length;
+  let h = `<div class="row"><span class="label">Search</span>
+    <input type="search" id="q" placeholder="cpu, nic, version, setting…" value="${esc(st.q)}" aria-label="Search">
+    <button class="adv" id="advbtn" aria-expanded="${st.adv}" aria-controls="advbox">Advanced search${active?`<span class="badge">${active}</span>`:""} ${st.adv?"▴":"▾"}</button>
     <button class="link" id="clear">Clear all</button></div>`;
+  if(st.adv){
+    // config keys/values offered depend on the currently selected software/hardware
+    const base = R.filter(r=>(!st.sw.length||st.sw.includes(r.software))&&(!st.hw.length||st.hw.includes(r.hardware.name)));
+    const keys = uniq(base.flatMap(r=>Object.keys(r.config)));
+    h += `<div class="advbox" id="advbox">`
+      + chips("Hardware",uniq(R.map(r=>r.hardware.name)),st.hw,"hw")
+      + chips("DNS software",uniq(R.map(r=>r.software)),st.sw,"sw")
+      + `<div class="row"><span class="label">Config value</span>
+        <select id="ck" aria-label="Config key"><option value="">key…</option>${keys.map(k=>`<option>${esc(k)}</option>`).join("")}</select>
+        <select id="cv" disabled aria-label="Config value"><option value="">value…</option></select>`
+      + st.cfg.map((c,i)=>`<span class="cfgf">${esc(c[0])} = <b>${esc(c[1])}</b><button data-rm="${i}" title="remove" aria-label="remove filter">×</button></span>`).join("")
+      + `</div></div>`;
+  }
   document.getElementById("filters").innerHTML=h;
-  const ck=document.getElementById("ck"), cv=document.getElementById("cv");
-  ck.onchange=()=>{
-    const vals=uniq(base.filter(r=>ck.value in r.config).map(r=>String(r.config[ck.value])));
-    cv.innerHTML=`<option value="">value…</option>`+vals.map(v=>`<option>${v}</option>`).join("");
-    cv.disabled=!ck.value;
-  };
-  cv.onchange=()=>{if(ck.value&&cv.value){st.cfg=st.cfg.filter(c=>c[0]!==ck.value);st.cfg.push([ck.value,cv.value]);update()}};
-  document.getElementById("q").oninput=e=>{st.q=e.target.value;renderTable();save()};
+  document.getElementById("advbtn").onclick=()=>{st.adv=!st.adv;update()};
+  document.getElementById("q").oninput=e=>{st.q=e.target.value;renderTable();renderPlot();save()};
   document.getElementById("clear").onclick=()=>{st={...st,sw:[],hw:[],cfg:[],q:""};update()};
+  if(st.adv){
+    const ck=document.getElementById("ck"), cv=document.getElementById("cv");
+    const base = R.filter(r=>(!st.sw.length||st.sw.includes(r.software))&&(!st.hw.length||st.hw.includes(r.hardware.name)));
+    ck.onchange=()=>{
+      const vals=uniq(base.filter(r=>ck.value in r.config).map(r=>String(r.config[ck.value])));
+      cv.innerHTML=`<option value="">value…</option>`+vals.map(v=>`<option>${esc(v)}</option>`).join("");
+      cv.disabled=!ck.value;
+    };
+    cv.onchange=()=>{if(ck.value&&cv.value){st.cfg=st.cfg.filter(c=>c[0]!==ck.value);st.cfg.push([ck.value,cv.value]);update()}};
+  }
 }
-function esc(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 function steps(h,list){
   if(!list||!list.length)return "";
   return `<h3>${h}</h3>`+list.map(s=>`<div class="step"><div class="st">${esc(s.title)}</div>
     <pre>${esc(s.commands.join("\n"))}</pre></div>`).join("")+
-    `<button class="link copy" data-copy="${esc(list.flatMap(s=>s.commands).join("\n")).replace(/"/g,"&quot;")}">Copy all</button>`;
+    `<button class="link copy" data-copy="${esc(list.flatMap(s=>s.commands).join("\n"))}">Copy all</button>`;
 }
-function renderTable(){
-  const col=COLS.find(c=>c.k===st.sort)||COLS[4];
+// config and every change, shown only for the selected row
+function configBlock(r){
+  const pills=Object.entries(r.config||{}).map(([k,v])=>`<span class="pill">${esc(k)} <b>${esc(fmt(v))}</b></span>`).join("");
+  return `<h3>Config</h3><div>${pills||'<span class="small">No settings recorded.</span>'}</div>`
+    + (r.changes&&r.changes.length?`<h3>All ${r.changes.length} changes</h3><pre>${esc(r.changes.join("\n"))}</pre>`:"");
+}
+function sortedRows(){
+  const col=COLS.find(c=>c.k===st.sort)||COLS.find(c=>c.k==="qps");
   const rows=R.filter(match);
   // rank is always by QPS across the filtered set, independent of the sort column
   const rankOf=new Map([...rows].sort((a,b)=>b.metrics.max_qps-a.metrics.max_qps).map((r,i)=>[r.id,i+1]));
   if(col.v) rows.sort((a,b)=>{const x=col.v(a)??-1,y=col.v(b)??-1;return (x>y?1:x<y?-1:0)*st.dir});
   else if(col.k==="rank") rows.sort((a,b)=>(rankOf.get(a.id)-rankOf.get(b.id))*-st.dir);
+  return {rows,rankOf};
+}
+function renderTable(){
+  const {rows,rankOf}=sortedRows();
   const max=Math.max(...rows.map(r=>r.metrics.max_qps),1);
   document.getElementById("head").innerHTML="<tr>"+COLS.map(c=>{
     const s=c.k===st.sort;
     return `<th class="${c.num?"num ":""}${s?"s":""}" ${c.v||c.k==="rank"?`data-s="${c.k}"`:""}>${c.l}${s?(st.dir<0?" ▼":" ▲"):""}</th>`}).join("")+"</tr>";
   document.getElementById("body").innerHTML = rows.length ? rows.map(r=>{
-    const n=rankOf.get(r.id), hw=r.hardware;
-    const pills=Object.entries(r.config).map(([k,v])=>`<span class="pill">${k} <b>${fmt(v)}</b></span>`).join("");
-    return `<tr class="d" data-id="${r.id}"><td class="rank ${n<4?"r"+n:""}">${n}</td>
-      <td><b>${r.software}</b> <span class="small">${r.version||""}</span>${r.sample?'<span class="sample">SAMPLE</span>':""}</td>
-      <td>${hw.name}${hw.cores||hw.arch?`<div class="small">${[hw.cores&&hw.cores+" cores",hw.arch].filter(Boolean).join(" · ")}</div>`:""}</td>
-      <td>${pills}</td>
-      <td class="num"><b title="${r.metrics.lower_bound?"Lower bound: limited by the load generator":""}">${r.metrics.lower_bound?"≥ ":""}${fmt(r.metrics.max_qps)}</b><div class="bar"><i style="width:${r.metrics.max_qps/max*100}%"></i></div></td>
-      <td class="num">${r.metrics.p99_ms??"–"}</td><td class="num">${r.metrics.answer_rate??"–"}</td></tr>`+
-      (open.has(r.id)?`<tr class="x"><td></td><td colspan="6">Hardware: ${[hw.name,hw.cpu,hw.ram_gb&&hw.ram_gb+" GB RAM",hw.nic].filter(Boolean).join(" · ")}
-      ${r.measured_with?` · measured with ${Object.entries(r.measured_with).map(([k,v])=>k+" "+v).join(", ")}`:""}
-      ${r.notes?`<div class="note">${esc(r.notes)}</div>`:""}${steps("1. Environment setup",r.setup)}${steps("2. Optimize the name server (run on NS_Local)",r.optimize)}
-      ${r.setup||r.optimize?"":`<div class="small">No setup/optimize commands recorded. Config: <code>${JSON.stringify(r.config)}</code></div>`}</td></tr>`:"");
-  }).join("") : `<tr><td colspan="7" class="empty">No results match these filters.</td></tr>`;
+    const n=rankOf.get(r.id), hw=r.hardware, sel=open.has(r.id);
+    return `<tr class="d${sel?" sel":""}" data-id="${esc(r.id)}" tabindex="0" aria-expanded="${sel}"><td class="rank ${n<4?"r"+n:""}">${n}</td>
+      <td><b>${esc(r.software)}</b> <span class="small">${esc(r.version||"")}</span>${r.sample?'<span class="sample">SAMPLE</span>':""}</td>
+      <td>${esc(hw.name)}${hw.cores||hw.arch?`<div class="small">${esc([hw.cores&&hw.cores+" cores",hw.arch].filter(Boolean).join(" · "))}</div>`:""}</td>
+      <td class="num"><b title="${r.metrics.lower_bound?"Lower bound: limited by the load generator":""}">${r.metrics.lower_bound?"≥ ":""}${fmt(r.metrics.max_qps)}</b><div class="bar"><i style="width:${r.metrics.max_qps/max*100}%"></i></div></td></tr>`+
+      (sel?`<tr class="x"><td></td><td colspan="3">
+        <div class="small">${esc([r.date&&"Measured "+r.date,[hw.name,hw.cpu,hw.ram_gb&&hw.ram_gb+" GB RAM",hw.nic].filter(Boolean).join(" · "),
+          r.measured_with&&"measured with "+Object.entries(r.measured_with).map(([k,v])=>k+" "+v).join(", ")].filter(Boolean).join(" · "))}</div>
+        ${configBlock(r)}
+        ${r.notes?`<div class="note">${esc(r.notes)}</div>`:""}${steps("1. Environment setup",r.setup)}${steps("2. Optimize the name server (run on NS_Local)",r.optimize)}
+        ${r.setup||r.optimize?"":`<div class="small">No setup or optimize commands recorded.</div>`}</td></tr>`:"");
+  }).join("") : `<tr><td colspan="4" class="empty">No results match these filters.</td></tr>`;
   document.getElementById("count").textContent=`${rows.length} of ${R.length} configurations`;
 }
-function update(){renderFilters();renderTable();save()}
+
+// ---- scatter: date (x) vs max QPS (y), for the rows that match the filters ----
+const DAY=86400000, tt=document.getElementById("tt"), NS="http://www.w3.org/2000/svg";
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e};
+const txt=(p,x,y,s,a={})=>{const e=el("text",{x,y,...a},p);e.textContent=s;return e};
+const parseDate=s=>{const t=Date.parse((s||"")+"T12:00:00Z");return isNaN(t)?null:t};
+// Sideways offset per point so results from the same day do not stack. Computed from all
+// results (sorted by hardware, then id) so a point keeps its place when filters change.
+const OFFSET=new Map();
+(()=>{const byDay=new Map();
+  R.filter(r=>parseDate(r.date)!=null).forEach(r=>{const k=r.date;(byDay.get(k)||byDay.set(k,[]).get(k)).push(r)});
+  byDay.forEach(g=>{g.sort((a,b)=>(a.hardware.name+a.software+a.id).localeCompare(b.hardware.name+b.software+b.id));
+    g.forEach((r,i)=>OFFSET.set(r.id,g.length>1?(i/(g.length-1)-.5)*.8*DAY:0))})})();
+function showTip(ev,html){tt.innerHTML=html;tt.style.display="block";const w=tt.offsetWidth;
+  tt.style.left=Math.max(8,Math.min(ev.clientX+14,innerWidth-w-8))+"px";tt.style.top=(ev.clientY+14)+"px"}
+function hideTip(){tt.style.display="none"}
+function renderPlot(){
+  const host=document.getElementById("plot"); host.innerHTML="";
+  const rows=R.filter(match), dated=rows.filter(r=>parseDate(r.date)!=null);
+  const hws=uniq(R.map(r=>r.hardware.name)), colorOf=h=>{const i=hws.indexOf(h);return i<3?`var(--c${i+1})`:"var(--cx)"};
+  document.getElementById("legend").innerHTML=hws.map(h=>`<span><i style="background:${colorOf(h)}"></i>${esc(h)}</span>`).join("")
+    +(rows.some(r=>r.metrics.lower_bound)?`<span><i class="hollow"></i>lower bound (≥)</span>`:"");
+  document.getElementById("plotcap").textContent=
+    `${dated.length} of ${R.length} configurations${rows.length-dated.length?` (${rows.length-dated.length} without a date not shown)`:""}. Results from the same day are spread sideways, grouped by hardware. Click a point to select its row.`;
+  if(!dated.length){host.innerHTML='<div class="empty">No dated results match these filters.</div>';return}
+  const W=Math.max(300,host.clientWidth), H=Math.round(Math.min(340,Math.max(220,W*.34))), m={l:54,r:14,t:22,b:46};
+  const iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const ts=dated.map(r=>parseDate(r.date)); let t0=Math.min(...ts), t1=Math.max(...ts);
+  if(t1-t0<2*DAY){t0-=DAY*1.5;t1+=DAY*1.5} else {const pad=Math.max((t1-t0)*.06,.6*DAY);t0-=pad;t1+=pad}
+  const maxQ=Math.max(...dated.map(r=>r.metrics.max_qps)), step=maxQ>2e6?1e6:maxQ>1e6?5e5:maxQ>5e5?2e5:maxQ>2e5?1e5:5e4, top=Math.ceil(maxQ*1.08/step)*step;
+  const x=t=>m.l+((t-t0)/(t1-t0))*iw, y=v=>m.t+ih-(v/top)*ih;
+  const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":"Max QPS by measurement date"},host);
+  for(let v=0;v<=top;v+=step){el("line",{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:"var(--grid)"},svg);
+    txt(svg,m.l-8,y(v)+4,v>=1e6?(v/1e6)+"M":v?(v/1e3)+"k":"0",{"text-anchor":"end"})}
+  txt(svg,0,10,"Max QPS",{"text-anchor":"start"});
+  // one tick per day when the span is short, otherwise about six evenly spaced days
+  const days=Math.round((t1-t0)/DAY), every=Math.max(1,Math.ceil(days/6));
+  // points are plotted at noon UTC, so ticks sit at noon too
+  for(let d=Math.ceil((t0-DAY/2)/DAY);d*DAY+DAY/2<=t1;d+=every){const t=d*DAY+DAY/2, s=new Date(t).toISOString().slice(0,10);
+    el("line",{x1:x(t),x2:x(t),y1:m.t+ih,y2:m.t+ih+4,stroke:"var(--mute)"},svg);
+    txt(svg,x(t),m.t+ih+18,s,{"text-anchor":"middle"})}
+  txt(svg,m.l+iw/2,H-4,"Date",{"text-anchor":"middle"});
+  dated.forEach(r=>{
+    const cx=x(parseDate(r.date)+(OFFSET.get(r.id)||0)), cy=y(r.metrics.max_qps);
+    const c=colorOf(r.hardware.name), lb=r.metrics.lower_bound, sel=open.has(r.id);
+    const pt=el("circle",{class:"pt",cx,cy,r:sel?7:5,fill:lb?"var(--panel)":c,stroke:sel?"var(--text)":c,"stroke-width":lb||sel?2:1.5,tabindex:0,role:"button",
+      "aria-label":`${r.hardware.name} ${r.software} ${fmt(r.metrics.max_qps)} QPS on ${r.date}`},svg);
+    const tip=`<b>${esc(r.hardware.name)} · ${esc(r.software)}</b><div class="m">${lb?"≥ ":""}${fmt(r.metrics.max_qps)} QPS</div><div class="d">${esc(r.date)}${r.config&&r.config.search?" · "+esc(r.config.search):""}</div>`;
+    pt.addEventListener("mousemove",ev=>showTip(ev,tip)); pt.addEventListener("mouseleave",hideTip);
+    pt.addEventListener("focus",()=>{const b=pt.getBoundingClientRect();showTip({clientX:b.left,clientY:b.top-40},tip)}); pt.addEventListener("blur",hideTip);
+    pt.addEventListener("click",()=>selectRow(r.id,true));
+    pt.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();selectRow(r.id,true)}});
+  });
+}
+function selectRow(id,scroll){
+  open.has(id)?open.delete(id):open.add(id);
+  renderTable();renderPlot();
+  if(scroll&&open.has(id)){const tr=[...document.querySelectorAll("tr.d")].find(t=>t.dataset.id===id);if(tr&&tr.scrollIntoView)tr.scrollIntoView({block:"center",behavior:"smooth"})}
+}
+
+function update(){renderFilters();renderTable();renderPlot();save()}
 document.addEventListener("click",e=>{
   const c=e.target.closest(".chip"); if(c){toggle(st[c.dataset.t],c.dataset.v);return update()}
   const rm=e.target.closest("[data-rm]"); if(rm){st.cfg.splice(+rm.dataset.rm,1);return update()}
   const th=e.target.closest("th[data-s]"); if(th){const k=th.dataset.s;
     st.dir = k===st.sort ? -st.dir : (["software","hardware"].includes(k)?1:-1); st.sort=k;return update()}
-  const cp=e.target.closest(".copy"); if(cp){navigator.clipboard?.writeText(cp.dataset.copy);cp.textContent="Copied";return}
+  const cp=e.target.closest(".copy"); if(cp){
+    try{navigator.clipboard.writeText(cp.dataset.copy).then(()=>{cp.textContent="Copied"},()=>{cp.textContent="Copy failed"})}catch(_){cp.textContent="Copy failed"}return}
   if(e.target.closest("tr.x"))return;
-  const tr=e.target.closest("tr.d"); if(tr){const id=tr.dataset.id;open.has(id)?open.delete(id):open.add(id);renderTable()}
+  const tr=e.target.closest("tr.d"); if(tr)selectRow(tr.dataset.id,false);
 });
+document.addEventListener("keydown",e=>{
+  if((e.key==="Enter"||e.key===" ")&&e.target.matches&&e.target.matches("tr.d")){e.preventDefault();selectRow(e.target.dataset.id,false)}});
 load(); update();
 window.addEventListener("hashchange",()=>{load();update()});
+let rt;window.addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(renderPlot,120)});
 </script></body></html>

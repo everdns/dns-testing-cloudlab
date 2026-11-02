@@ -1,0 +1,114 @@
+{
+ "id": "bind-rs620-1_agent_bounded-run2",
+ "software": "bind",
+ "version": "",
+ "hardware": {
+  "name": "rs620"
+ },
+ "config": {
+  "search": "agent bounded",
+  "load generators": 2,
+  "udp-receive-buffer": 67108864,
+  "udp-send-buffer": 4194304,
+  "max-udp-size": 1232,
+  "rmem": 268435456
+ },
+ "metrics": {
+  "max_qps": 750000,
+  "lower_bound": true
+ },
+ "setup": [
+  {
+   "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+   "commands": [
+    "python3 cloudlab_api/launch.py launch --name dns-rs620 --num-testers 2 --server-software bind --server-hw rs620 --tester-hw rs620",
+    "python3 cloudlab_api/launch.py wait <experiment_id>",
+    "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+   ]
+  },
+  {
+   "title": "On test_host_0: create an SSH key and authorize it on every node",
+   "commands": [
+    "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+    "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+   ]
+  },
+  {
+   "title": "On test_host_0: generate the zone and load it on the name server",
+   "commands": [
+    "cd /local/repository/optimization && bash optimization_setup.sh"
+   ]
+  },
+  {
+   "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+   "commands": [
+    "sudo ethtool -X enp4s0f0np0 equal 1"
+   ]
+  },
+  {
+   "title": "Point the search config at this machine",
+   "commands": [
+    "client_interface: enp4s0f0np0   # in agent_search.yaml / grid_search.yaml",
+    "threads: 40",
+    "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+   ]
+  },
+  {
+   "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+   "commands": [
+    "ssh 10.10.1.3 'sudo ip link set dev enp65s0f0np0 down && sudo ip link set dev enp65s0f0np0 name enp4s0f0np0 && sudo ip link set dev enp4s0f0np0 up'   # same NIC name on both clients",
+    "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+    "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+   ]
+  },
+  {
+   "title": "Run the search (from test_host_0)",
+   "commands": [
+    "cd /local/repository/optimization && python3 agent_search.py --mode bounded --agent-backend claude-code --max-configs 20"
+   ]
+  }
+ ],
+ "optimize": [
+  {
+   "title": "Host tuning (sysctls, firewall, limits)",
+   "commands": [
+    "sudo sysctl -q -w net.core.rmem_max=268435456",
+    "sudo sysctl -q -w net.core.rmem_default=268435456"
+   ]
+  },
+  {
+   "title": "bind configuration",
+   "commands": [
+    "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+    "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-receive-buffer 67108864;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+    "sudo named-checkconf /etc/bind/named.conf"
+   ]
+  },
+  {
+   "title": "Restart the DNS service",
+   "commands": [
+    "sudo /local/repository/stop_dns_service.sh ns_bind",
+    "sudo /local/repository/start_dns_service.sh ns_bind"
+   ]
+  }
+ ],
+ "measured_with": {
+  "load generators": 2,
+  "tool": "kxdpgun (generic mode)",
+  "per level": "5 trials x 30 s",
+  "measurements in search": 12
+ },
+ "changes": [
+  "search = agent bounded",
+  "load generators = 2",
+  "udp-receive-buffer = 67108864",
+  "udp-send-buffer = 4194304",
+  "max-udp-size = 1232",
+  "rmem = 268435456"
+ ],
+ "notes": "Lower bound. Two load generators were used, but some higher-rate levels still delivered under 99% of the requested queries, so the load generators may still limit the score. Those measurements are excluded.",
+ "date": "2026-10-12"
+}

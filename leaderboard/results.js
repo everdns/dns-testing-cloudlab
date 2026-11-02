@@ -9,6 +9,7 @@ window.RESULTS = [
   },
   "config": {
    "search": "agent bounded",
+   "load generators": 1,
    "udp-receive-buffer": 67108864,
    "udp-send-buffer": 4194304,
    "max-udp-size": 1232,
@@ -99,8 +100,131 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 14
   },
+  "changes": [
+   "search = agent bounded",
+   "load generators = 1",
+   "udp-receive-buffer = 67108864",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232",
+   "udp-conntrack = ufw-off",
+   "rmem = 67108864",
+   "netdev-budget = 3000/16000"
+  ],
   "notes": "",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-d710-1_agent_bounded-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "d710"
+  },
+  "config": {
+   "search": "agent bounded",
+   "load generators": 2,
+   "udp-receive-buffer": 16777216,
+   "udp-send-buffer": 16777216,
+   "max-udp-size": 1232,
+   "rmem": 67108864
+  },
+  "metrics": {
+   "max_qps": 180000,
+   "lower_bound": false
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-d710 --num-testers 2 --server-software bind --server-hw d710 --tester-hw d710",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -L eno4 rx 1 tx 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: eno4   # in agent_search.yaml / grid_search.yaml",
+     "threads: 8",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 agent_search.py --mode bounded --agent-backend claude-code --max-configs 20"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host tuning (sysctls, firewall, limits)",
+    "commands": [
+     "sudo sysctl -q -w net.core.rmem_max=67108864",
+     "sudo sysctl -q -w net.core.rmem_default=67108864"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Restart the DNS service",
+    "commands": [
+     "sudo /local/repository/stop_dns_service.sh ns_bind",
+     "sudo /local/repository/start_dns_service.sh ns_bind"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 9
+  },
+  "changes": [
+   "search = agent bounded",
+   "load generators = 2",
+   "udp-receive-buffer = 16777216",
+   "udp-send-buffer = 16777216",
+   "max-udp-size = 1232",
+   "rmem = 67108864"
+  ],
+  "notes": "",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-d710-2_coordinate_descent-run1",
@@ -111,6 +235,7 @@ window.RESULTS = [
   },
   "config": {
    "search": "coordinate descent",
+   "load generators": 1,
    "udp-receive-buffer": 4194304,
    "udp-send-buffer": 4194304,
    "max-udp-size": 1232
@@ -188,8 +313,119 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 17
   },
+  "changes": [
+   "search = coordinate descent",
+   "load generators = 1",
+   "udp-receive-buffer = 4194304",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232"
+  ],
   "notes": "",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-d710-2_coordinate_descent-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "d710"
+  },
+  "config": {
+   "search": "coordinate descent",
+   "load generators": 2,
+   "udp-receive-buffer": 4194304,
+   "udp-send-buffer": 4194304,
+   "max-udp-size": 1232
+  },
+  "metrics": {
+   "max_qps": 170000,
+   "lower_bound": false
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-d710 --num-testers 2 --server-software bind --server-hw d710 --tester-hw d710",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -L eno4 rx 1 tx 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: eno4   # in agent_search.yaml / grid_search.yaml",
+     "threads: 8",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 grid_search.py --mode coordinate-descent --max-passes 3"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Restart the DNS service",
+    "commands": [
+     "sudo /local/repository/stop_dns_service.sh ns_bind",
+     "sudo /local/repository/start_dns_service.sh ns_bind"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 17
+  },
+  "changes": [
+   "search = coordinate descent",
+   "load generators = 2",
+   "udp-receive-buffer = 4194304",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232"
+  ],
+  "notes": "",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-d710-3_agent_open-run1",
@@ -200,9 +436,9 @@ window.RESULTS = [
   },
   "config": {
    "search": "agent open",
-   "tuning": "full-tuning-mitigations-off",
+   "load generators": 1,
    "udp-receive-buffer": 16777216,
-   "host commands": 11,
+   "root commands": 11,
    "reboot": true
   },
   "metrics": {
@@ -291,8 +527,156 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 17
   },
-  "notes": "",
+  "changes": [
+   "named.conf.options: udp-receive-buffer 16777216;",
+   "root: tar xzf /var/tmp/agent_baseline.tgz -C / etc/bind/db.workbench.lan etc/bind/db.dns64perf.test etc/bind/named.conf.local",
+   "root: test $(wc -l < /etc/bind/db.workbench.lan) -gt 60000",
+   "root: sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=\"\"/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off\"/' /etc/default/grub",
+   "root: grep -q 'GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off\"' /etc/default/grub",
+   "root: update-grub",
+   "root: rm -rf /var/local/bindbak && cp -a /etc/bind /var/local/bindbak",
+   "root: cat > /etc/systemd/system/dnswait.sh <<'EOF'\n#!/bin/bash\nexec >/var/tmp/dnswait.log 2>&1\nset -x\nboot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))\nfor i in $(seq 1 90); do\n  s=$(stat -c %Y /var/tmp/startup-5.status 2>/dev/null || echo 0)\n  [ \"$s\" -gt \"$boot\" ] && break\n  sleep 5\ndone\nsleep 5\ncp -a /var/local/bindbak/. /etc/bind/\nethtool -G eno4 rx 2040; sleep 5\nfor q in /sys/class/net/eno4/queues/rx-*; do echo ff > $q/rps_cpus; done\nsysctl -w net.core.netdev_max_backlog=30000 net.core.rmem_max=16777216 net.core.rmem_default=16777216\nethtool -C eno4 rx-usecs 200 rx-frames 128 rx-usecs-irq 200 rx-frames-irq 128\nethtool -K eno4 gro off\nfor i in 0 1 2 3 4 5 6 7; do printf '%x' $((1<<i)) > /sys/class/net/eno4/queues/tx-$i/xps_cpus; done\nsysctl -w net.core.default_qdisc=pfifo_fast\ntc qdisc replace dev eno4 root handle 1: mq\nsysctl -w net.ipv4.conf.all.rp_filter=0 net.ipv4.conf.eno4.rp_filter=0 net.ipv4.conf.default.rp_filter=0\necho always > /sys/kernel/mm/transparent_hugepage/enabled\ntc qdisc show dev eno4; ethtool -c eno4; cat /proc/cmdline; wc -l /etc/bind/db.workbench.lan\nexit 0\nEOF",
+   "root: chmod 755 /etc/systemd/system/dnswait.sh",
+   "root: mkdir -p /etc/systemd/system/ssh.service.d",
+   "root: printf '[Service]\\nExecStartPre=-/etc/systemd/system/dnswait.sh\\nTimeoutStartSec=900\\n' > /etc/systemd/system/ssh.service.d/zz-wait.conf",
+   "root: systemctl daemon-reload",
+   "reboot the name server"
+  ],
+  "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-d710-3_agent_open-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "d710"
+  },
+  "config": {
+   "search": "agent open",
+   "load generators": 2,
+   "udp-receive-buffer": 16777216,
+   "udp-send-buffer": 16777216,
+   "reuseport": "no",
+   "zone-statistics": "none",
+   "querylog": "no",
+   "root commands": 9,
+   "reboot": true
+  },
+  "metrics": {
+   "max_qps": 260000,
+   "lower_bound": false
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-d710 --num-testers 2 --server-software bind --server-hw d710 --tester-hw d710",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -L eno4 rx 1 tx 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: eno4   # in agent_search.yaml / grid_search.yaml",
+     "threads: 8",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 agent_search.py --mode open --agent-backend claude-code --max-configs 20"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host changes (run as root on NS_Local)",
+    "commands": [
+     "cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan && chown root:bind /etc/bind/db.workbench.lan && chmod 644 /etc/bind/db.workbench.lan",
+     "printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.core.wmem_default=4194304\\nnet.core.netdev_max_backlog=30000\\nnet.core.default_qdisc=pfifo_fast\\nkernel.sched_autogroup_enabled=0\\n' > /etc/sysctl.d/99-dnsperf.conf",
+     "mkdir -p /etc/systemd/system/named.service.d && printf '[Service]\\nEnvironment=MALLOC_CONF=thp:always,metadata_thp:always\\n' > /etc/systemd/system/named.service.d/thp.conf",
+     "cat > /etc/systemd/system/dnstune.sh <<'EOF'\n#!/bin/bash\ncmp -s /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan || cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $g; done\nfor s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable /sys/devices/system/cpu/cpu*/cpuidle/state4/disable; do echo 1 > $s; done\necho always > /sys/kernel/mm/transparent_hugepage/enabled\necho 5000000 > /sys/kernel/debug/sched/migration_cost_ns\nethtool -G eno4 rx 2040\nsleep 3\nethtool -C eno4 rx-usecs 100 rx-frames 64 rx-usecs-irq 100 rx-frames-irq 64 tx-usecs 200 tx-frames 64 tx-usecs-irq 200 tx-frames-irq 64\nethtool -K eno4 gro off\nsysctl -w net.core.default_qdisc=pfifo_fast\ntc qdisc replace dev eno4 root mq\nfor q in 0 1 2 3 4 5 6 7; do printf '%x' $((1<<q)) > /sys/class/net/eno4/queues/tx-$q/xps_cpus; done\nsystemctl stop irqbalance\nfor q in 0 1 2 3 4 5 6 7; do irq=$(awk -v n=eno4-$q '$NF==n {sub(\":\",\"\",$1); print $1}' /proc/interrupts); [ -n \"$irq\" ] && echo $q > /proc/irq/$irq/smp_affinity_list; done\nsystemctl --no-block stop collectl apache2 packagekit\nexit 0\nEOF",
+     "printf '[Unit]\\nDescription=dns tune\\nAfter=network-online.target\\nWants=network-online.target\\nBefore=named.service\\n[Service]\\nType=oneshot\\nExecStart=/bin/bash /etc/systemd/system/dnstune.sh\\nRemainAfterExit=yes\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnstune.service",
+     "systemctl daemon-reload",
+     "systemctl enable dnstune.service",
+     "sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance apparmor=0 init_on_alloc=0 hardened_usercopy=off cgroup.memory=nokmem audit=0 nowatchdog\"/' /etc/default/grub",
+     "update-grub"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|reuseport|zone-statistics|querylog)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    reuseport no;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    zone-statistics none;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    querylog no;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Reboot the name server",
+    "commands": [
+     "sudo reboot"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 20
+  },
+  "changes": [
+   "named.conf.options: udp-receive-buffer 16777216;",
+   "named.conf.options: udp-send-buffer 16777216;",
+   "named.conf.options: reuseport no;",
+   "named.conf.options: zone-statistics none;",
+   "named.conf.options: querylog no;",
+   "root: cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan && chown root:bind /etc/bind/db.workbench.lan && chmod 644 /etc/bind/db.workbench.lan",
+   "root: printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.core.wmem_default=4194304\\nnet.core.netdev_max_backlog=30000\\nnet.core.default_qdisc=pfifo_fast\\nkernel.sched_autogroup_enabled=0\\n' > /etc/sysctl.d/99-dnsperf.conf",
+   "root: mkdir -p /etc/systemd/system/named.service.d && printf '[Service]\\nEnvironment=MALLOC_CONF=thp:always,metadata_thp:always\\n' > /etc/systemd/system/named.service.d/thp.conf",
+   "root: cat > /etc/systemd/system/dnstune.sh <<'EOF'\n#!/bin/bash\ncmp -s /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan || cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $g; done\nfor s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable /sys/devices/system/cpu/cpu*/cpuidle/state4/disable; do echo 1 > $s; done\necho always > /sys/kernel/mm/transparent_hugepage/enabled\necho 5000000 > /sys/kernel/debug/sched/migration_cost_ns\nethtool -G eno4 rx 2040\nsleep 3\nethtool -C eno4 rx-usecs 100 rx-frames 64 rx-usecs-irq 100 rx-frames-irq 64 tx-usecs 200 tx-frames 64 tx-usecs-irq 200 tx-frames-irq 64\nethtool -K eno4 gro off\nsysctl -w net.core.default_qdisc=pfifo_fast\ntc qdisc replace dev eno4 root mq\nfor q in 0 1 2 3 4 5 6 7; do printf '%x' $((1<<q)) > /sys/class/net/eno4/queues/tx-$q/xps_cpus; done\nsystemctl stop irqbalance\nfor q in 0 1 2 3 4 5 6 7; do irq=$(awk -v n=eno4-$q '$NF==n {sub(\":\",\"\",$1); print $1}' /proc/interrupts); [ -n \"$irq\" ] && echo $q > /proc/irq/$irq/smp_affinity_list; done\nsystemctl --no-block stop collectl apache2 packagekit\nexit 0\nEOF",
+   "root: printf '[Unit]\\nDescription=dns tune\\nAfter=network-online.target\\nWants=network-online.target\\nBefore=named.service\\n[Service]\\nType=oneshot\\nExecStart=/bin/bash /etc/systemd/system/dnstune.sh\\nRemainAfterExit=yes\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnstune.service",
+   "root: systemctl daemon-reload",
+   "root: systemctl enable dnstune.service",
+   "root: sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance apparmor=0 init_on_alloc=0 hardened_usercopy=off cgroup.memory=nokmem audit=0 nowatchdog\"/' /etc/default/grub",
+   "root: update-grub",
+   "reboot the name server"
+  ],
+  "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-r320-1_agent_bounded-run1",
@@ -303,6 +687,7 @@ window.RESULTS = [
   },
   "config": {
    "search": "agent bounded",
+   "load generators": 1,
    "udp-receive-buffer": 16777216,
    "udp-send-buffer": 4194304,
    "max-udp-size": 1232,
@@ -388,8 +773,129 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 11
   },
+  "changes": [
+   "search = agent bounded",
+   "load generators = 1",
+   "udp-receive-buffer = 16777216",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232",
+   "rmem = 16777216"
+  ],
   "notes": "",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-r320-1_agent_bounded-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "r320"
+  },
+  "config": {
+   "search": "agent bounded",
+   "load generators": 2,
+   "udp-receive-buffer": 16777216,
+   "udp-send-buffer": 4194304,
+   "max-udp-size": 1232,
+   "rmem": 16777216
+  },
+  "metrics": {
+   "max_qps": 320000,
+   "lower_bound": false
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-r320 --num-testers 2 --server-software bind --server-hw r320 --tester-hw r320",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -L enp8s0d1 rx 1 tx 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: enp8s0d1   # in agent_search.yaml / grid_search.yaml",
+     "threads: 16",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 agent_search.py --mode bounded --agent-backend claude-code --max-configs 20"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host tuning (sysctls, firewall, limits)",
+    "commands": [
+     "sudo sysctl -q -w net.core.rmem_max=16777216",
+     "sudo sysctl -q -w net.core.rmem_default=16777216"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Restart the DNS service",
+    "commands": [
+     "sudo /local/repository/stop_dns_service.sh ns_bind",
+     "sudo /local/repository/start_dns_service.sh ns_bind"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 11
+  },
+  "changes": [
+   "search = agent bounded",
+   "load generators = 2",
+   "udp-receive-buffer = 16777216",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232",
+   "rmem = 16777216"
+  ],
+  "notes": "",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-r320-2_coordinate_descent-run1",
@@ -400,6 +906,7 @@ window.RESULTS = [
   },
   "config": {
    "search": "coordinate descent",
+   "load generators": 1,
    "udp-receive-buffer": 4194304,
    "udp-send-buffer": 16777216,
    "max-udp-size": 2048,
@@ -485,8 +992,120 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 24
   },
+  "changes": [
+   "search = coordinate descent",
+   "load generators = 1",
+   "udp-receive-buffer = 4194304",
+   "udp-send-buffer = 16777216",
+   "max-udp-size = 2048",
+   "rmem = 16777216"
+  ],
   "notes": "",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-r320-2_coordinate_descent-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "r320"
+  },
+  "config": {
+   "search": "coordinate descent",
+   "load generators": 2,
+   "udp-receive-buffer": 4194304,
+   "udp-send-buffer": 16777216,
+   "max-udp-size": 1232
+  },
+  "metrics": {
+   "max_qps": 310000,
+   "lower_bound": false
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-r320 --num-testers 2 --server-software bind --server-hw r320 --tester-hw r320",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -L enp8s0d1 rx 1 tx 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: enp8s0d1   # in agent_search.yaml / grid_search.yaml",
+     "threads: 16",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 grid_search.py --mode coordinate-descent --max-passes 3"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Restart the DNS service",
+    "commands": [
+     "sudo /local/repository/stop_dns_service.sh ns_bind",
+     "sudo /local/repository/start_dns_service.sh ns_bind"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 18
+  },
+  "changes": [
+   "search = coordinate descent",
+   "load generators = 2",
+   "udp-receive-buffer = 4194304",
+   "udp-send-buffer = 16777216",
+   "max-udp-size = 1232"
+  ],
+  "notes": "",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-r320-3_agent_open-run1",
@@ -497,10 +1116,10 @@ window.RESULTS = [
   },
   "config": {
    "search": "agent open",
-   "tuning": "rx256-pin-noirqbal-nocollectl-thp",
+   "load generators": 1,
    "udp-receive-buffer": 16777216,
    "udp-send-buffer": 16777216,
-   "host commands": 7
+   "root commands": 7
   },
   "metrics": {
    "max_qps": 420000,
@@ -579,8 +1198,155 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 20
   },
-  "notes": "",
+  "changes": [
+   "named.conf.options: udp-receive-buffer 16777216;",
+   "named.conf.options: udp-send-buffer 16777216;",
+   "root: systemctl stop irqbalance",
+   "root: systemctl stop collectl || true",
+   "root: echo always > /sys/kernel/mm/transparent_hugepage/enabled",
+   "root: ethtool -C enp8s0d1 adaptive-rx off rx-usecs 256 rx-frames 512 tx-usecs 64 tx-frames 64",
+   "root: ethtool -K enp8s0d1 gro off",
+   "root: sysctl -w net.core.rmem_max=16777216 net.core.rmem_default=16777216 net.core.wmem_max=16777216 net.core.wmem_default=16777216",
+   "root: c=0; for i in $(grep -E 'mlx4-(1[7-9]|2[0-9]|3[0-2])@' /proc/interrupts | awk -F: '{print $1}'); do echo $c > /proc/irq/$i/smp_affinity_list; c=$((c+1)); done"
+  ],
+  "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-r320-3_agent_open-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "r320"
+  },
+  "config": {
+   "search": "agent open",
+   "load generators": 2,
+   "udp-receive-buffer": 16777216,
+   "udp-send-buffer": 4194304,
+   "message-compression": "no",
+   "zone-statistics": "none",
+   "root commands": 12,
+   "reboot": true
+  },
+  "metrics": {
+   "max_qps": 540000,
+   "lower_bound": false
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-r320 --num-testers 2 --server-software bind --server-hw r320 --tester-hw r320",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -L enp8s0d1 rx 1 tx 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: enp8s0d1   # in agent_search.yaml / grid_search.yaml",
+     "threads: 16",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 agent_search.py --mode open --agent-backend claude-code --max-configs 20"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host changes (run as root on NS_Local)",
+    "commands": [
+     "cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan",
+     "sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance intel_idle.max_cstate=1 processor.max_cstate=1 transparent_hugepage=always\"/' /etc/default/grub",
+     "update-grub",
+     "printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.ipv4.conf.all.rp_filter=0\\nnet.ipv4.conf.default.rp_filter=0\\nnet.core.default_qdisc=pfifo_fast\\n' > /etc/sysctl.d/99-dnsperf.conf",
+     "cat > /etc/systemd/system/dnsperf-turbo.sh <<'EOF'\n#!/bin/bash\nmodprobe msr\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); v=struct.unpack('<Q',os.pread(fd,8,0x1a0))[0]; os.pwrite(fd,struct.pack('<Q',v&~(1<<38)),0x1a0); os.close(fd)\"\necho 0 > /sys/devices/system/cpu/intel_pstate/no_turbo\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > $g; echo performance > $g; done\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); os.pwrite(fd,struct.pack('<Q',0x1d00),0x199); os.close(fd)\"\necho always > /sys/kernel/mm/transparent_hugepage/enabled\nnohup /bin/bash /etc/systemd/system/dnsperf-sampler.sh >/dev/null 2>&1 &\nexit 0\nEOF",
+     "cat > /etc/systemd/system/dnsperf-sampler.sh <<'EOF'\n#!/bin/bash\nP=/usr/lib/linux-tools/5.15.0-187-generic/perf\nO=/var/local/dnsperf-run18\nmkdir -p $O; rm -f $O/*\nnstat -n >/dev/null\nfor i in $(seq 1 400); do\n  sleep 4\n  r=$(nstat UdpInDatagrams 2>/dev/null | awk '$1==\"UdpInDatagrams\"{print int($2/4)}')\n  echo \"$(date +%T) ${r:-0}\" >> $O/rates\n  if [ \"${r:-0}\" -gt 560000 ]; then\n    $P stat -a -e cycles,ref-cycles,instructions -- sleep 5 > $O/freq.txt 2>&1\n    $P record -F 199 -a -g -o $O/perf.data -- sleep 6 >/dev/null 2>&1\n    exit 0\n  fi\ndone\nEOF",
+     "cat > /etc/systemd/system/dnsperf-zoneguard.sh <<'EOF'\n#!/bin/bash\nfor i in $(seq 1 600); do\n  s=$(stat -c %s /etc/bind/db.workbench.lan 2>/dev/null || echo 0)\n  if [ \"$s\" -lt 1000000 ]; then cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan; logger dnsperf-zoneguard restored zone; rndc reload workbench.lan; fi\n  if [ $i -le 90 ]; then\n    ethtool -K enp8s0d1 gro off >/dev/null 2>&1\n    sysctl -qw net.ipv4.conf.enp8s0d1.rp_filter=0 net.ipv4.conf.all.rp_filter=0 net.core.default_qdisc=pfifo_fast\n    if ethtool -c enp8s0d1 | grep -q 'Adaptive RX: on'; then ethtool -C enp8s0d1 adaptive-rx off rx-usecs 256 rx-frames 512 tx-usecs 256 tx-frames 256 >/dev/null 2>&1; logger dnsperf coalesce set; fi\n    if tc qdisc show dev enp8s0d1 | grep -q fq_codel; then tc qdisc replace dev enp8s0d1 root handle 1: mq; logger dnsperf qdisc set; fi\n  fi\n  sleep 2\ndone\nEOF",
+     "chmod +x /etc/systemd/system/dnsperf-*.sh",
+     "printf '[Unit]\\nDescription=dnsperf turbo\\n[Service]\\nType=oneshot\\nRemainAfterExit=yes\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-turbo.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-turbo.service",
+     "printf '[Unit]\\nDescription=dnsperf zone guard\\n[Service]\\nType=simple\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-zoneguard.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-zoneguard.service",
+     "systemctl daemon-reload",
+     "systemctl enable dnsperf-turbo.service dnsperf-zoneguard.service"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|message-compression|zone-statistics)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    message-compression no;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    zone-statistics none;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Reboot the name server",
+    "commands": [
+     "sudo reboot"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 20
+  },
+  "changes": [
+   "named.conf.options: udp-receive-buffer 16777216;",
+   "named.conf.options: udp-send-buffer 4194304;",
+   "named.conf.options: message-compression no;",
+   "named.conf.options: zone-statistics none;",
+   "root: cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan",
+   "root: sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance intel_idle.max_cstate=1 processor.max_cstate=1 transparent_hugepage=always\"/' /etc/default/grub",
+   "root: update-grub",
+   "root: printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.ipv4.conf.all.rp_filter=0\\nnet.ipv4.conf.default.rp_filter=0\\nnet.core.default_qdisc=pfifo_fast\\n' > /etc/sysctl.d/99-dnsperf.conf",
+   "root: cat > /etc/systemd/system/dnsperf-turbo.sh <<'EOF'\n#!/bin/bash\nmodprobe msr\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); v=struct.unpack('<Q',os.pread(fd,8,0x1a0))[0]; os.pwrite(fd,struct.pack('<Q',v&~(1<<38)),0x1a0); os.close(fd)\"\necho 0 > /sys/devices/system/cpu/intel_pstate/no_turbo\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > $g; echo performance > $g; done\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); os.pwrite(fd,struct.pack('<Q',0x1d00),0x199); os.close(fd)\"\necho always > /sys/kernel/mm/transparent_hugepage/enabled\nnohup /bin/bash /etc/systemd/system/dnsperf-sampler.sh >/dev/null 2>&1 &\nexit 0\nEOF",
+   "root: cat > /etc/systemd/system/dnsperf-sampler.sh <<'EOF'\n#!/bin/bash\nP=/usr/lib/linux-tools/5.15.0-187-generic/perf\nO=/var/local/dnsperf-run18\nmkdir -p $O; rm -f $O/*\nnstat -n >/dev/null\nfor i in $(seq 1 400); do\n  sleep 4\n  r=$(nstat UdpInDatagrams 2>/dev/null | awk '$1==\"UdpInDatagrams\"{print int($2/4)}')\n  echo \"$(date +%T) ${r:-0}\" >> $O/rates\n  if [ \"${r:-0}\" -gt 560000 ]; then\n    $P stat -a -e cycles,ref-cycles,instructions -- sleep 5 > $O/freq.txt 2>&1\n    $P record -F 199 -a -g -o $O/perf.data -- sleep 6 >/dev/null 2>&1\n    exit 0\n  fi\ndone\nEOF",
+   "root: cat > /etc/systemd/system/dnsperf-zoneguard.sh <<'EOF'\n#!/bin/bash\nfor i in $(seq 1 600); do\n  s=$(stat -c %s /etc/bind/db.workbench.lan 2>/dev/null || echo 0)\n  if [ \"$s\" -lt 1000000 ]; then cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan; logger dnsperf-zoneguard restored zone; rndc reload workbench.lan; fi\n  if [ $i -le 90 ]; then\n    ethtool -K enp8s0d1 gro off >/dev/null 2>&1\n    sysctl -qw net.ipv4.conf.enp8s0d1.rp_filter=0 net.ipv4.conf.all.rp_filter=0 net.core.default_qdisc=pfifo_fast\n    if ethtool -c enp8s0d1 | grep -q 'Adaptive RX: on'; then ethtool -C enp8s0d1 adaptive-rx off rx-usecs 256 rx-frames 512 tx-usecs 256 tx-frames 256 >/dev/null 2>&1; logger dnsperf coalesce set; fi\n    if tc qdisc show dev enp8s0d1 | grep -q fq_codel; then tc qdisc replace dev enp8s0d1 root handle 1: mq; logger dnsperf qdisc set; fi\n  fi\n  sleep 2\ndone\nEOF",
+   "root: chmod +x /etc/systemd/system/dnsperf-*.sh",
+   "root: printf '[Unit]\\nDescription=dnsperf turbo\\n[Service]\\nType=oneshot\\nRemainAfterExit=yes\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-turbo.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-turbo.service",
+   "root: printf '[Unit]\\nDescription=dnsperf zone guard\\n[Service]\\nType=simple\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-zoneguard.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-zoneguard.service",
+   "root: systemctl daemon-reload",
+   "root: systemctl enable dnsperf-turbo.service dnsperf-zoneguard.service",
+   "reboot the name server"
+  ],
+  "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-rs620-1_agent_bounded-run1",
@@ -591,6 +1357,7 @@ window.RESULTS = [
   },
   "config": {
    "search": "agent bounded",
+   "load generators": 1,
    "udp-receive-buffer": 4194304,
    "udp-send-buffer": 4194304,
    "max-udp-size": 1232
@@ -668,8 +1435,129 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 11
   },
+  "changes": [
+   "search = agent bounded",
+   "load generators = 1",
+   "udp-receive-buffer = 4194304",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232"
+  ],
   "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-rs620-1_agent_bounded-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "rs620"
+  },
+  "config": {
+   "search": "agent bounded",
+   "load generators": 2,
+   "udp-receive-buffer": 67108864,
+   "udp-send-buffer": 4194304,
+   "max-udp-size": 1232,
+   "rmem": 268435456
+  },
+  "metrics": {
+   "max_qps": 750000,
+   "lower_bound": true
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-rs620 --num-testers 2 --server-software bind --server-hw rs620 --tester-hw rs620",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -X enp4s0f0np0 equal 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: enp4s0f0np0   # in agent_search.yaml / grid_search.yaml",
+     "threads: 40",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "ssh 10.10.1.3 'sudo ip link set dev enp65s0f0np0 down && sudo ip link set dev enp65s0f0np0 name enp4s0f0np0 && sudo ip link set dev enp4s0f0np0 up'   # same NIC name on both clients",
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 agent_search.py --mode bounded --agent-backend claude-code --max-configs 20"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host tuning (sysctls, firewall, limits)",
+    "commands": [
+     "sudo sysctl -q -w net.core.rmem_max=268435456",
+     "sudo sysctl -q -w net.core.rmem_default=268435456"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 67108864;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Restart the DNS service",
+    "commands": [
+     "sudo /local/repository/stop_dns_service.sh ns_bind",
+     "sudo /local/repository/start_dns_service.sh ns_bind"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 12
+  },
+  "changes": [
+   "search = agent bounded",
+   "load generators = 2",
+   "udp-receive-buffer = 67108864",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232",
+   "rmem = 268435456"
+  ],
+  "notes": "Lower bound. Two load generators were used, but some higher-rate levels still delivered under 99% of the requested queries, so the load generators may still limit the score. Those measurements are excluded.",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-rs620-2_coordinate_descent-run1",
@@ -680,6 +1568,7 @@ window.RESULTS = [
   },
   "config": {
    "search": "coordinate descent",
+   "load generators": 1,
    "udp-receive-buffer": 16777216,
    "udp-send-buffer": 4194304,
    "max-udp-size": 1232,
@@ -771,8 +1660,139 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 42
   },
+  "changes": [
+   "search = coordinate descent",
+   "load generators = 1",
+   "udp-receive-buffer = 16777216",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232",
+   "udp-conntrack = conntrack-raised",
+   "rmem = 16777216",
+   "netdev-max-backlog = 5000"
+  ],
   "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-rs620-2_coordinate_descent-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "rs620"
+  },
+  "config": {
+   "search": "coordinate descent",
+   "load generators": 2,
+   "udp-receive-buffer": 16777216,
+   "udp-send-buffer": 4194304,
+   "max-udp-size": 1232,
+   "rmem": 67108864,
+   "netdev-max-backlog": 30000,
+   "netdev-budget": "3000/16000"
+  },
+  "metrics": {
+   "max_qps": 700000,
+   "lower_bound": true
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-rs620 --num-testers 2 --server-software bind --server-hw rs620 --tester-hw rs620",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -X enp4s0f0np0 equal 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: enp4s0f0np0   # in agent_search.yaml / grid_search.yaml",
+     "threads: 40",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "ssh 10.10.1.3 'sudo ip link set dev enp65s0f0np0 down && sudo ip link set dev enp65s0f0np0 name enp4s0f0np0 && sudo ip link set dev enp4s0f0np0 up'   # same NIC name on both clients",
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 grid_search.py --mode coordinate-descent --max-passes 3"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host tuning (sysctls, firewall, limits)",
+    "commands": [
+     "sudo sysctl -q -w net.core.rmem_max=67108864",
+     "sudo sysctl -q -w net.core.rmem_default=67108864",
+     "sudo sysctl -q -w net.core.netdev_max_backlog=30000",
+     "sudo sysctl -q -w net.core.netdev_budget=3000",
+     "sudo sysctl -q -w net.core.netdev_budget_usecs=16000"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   },
+   {
+    "title": "Restart the DNS service",
+    "commands": [
+     "sudo /local/repository/stop_dns_service.sh ns_bind",
+     "sudo /local/repository/start_dns_service.sh ns_bind"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 48
+  },
+  "changes": [
+   "search = coordinate descent",
+   "load generators = 2",
+   "udp-receive-buffer = 16777216",
+   "udp-send-buffer = 4194304",
+   "max-udp-size = 1232",
+   "rmem = 67108864",
+   "netdev-max-backlog = 30000",
+   "netdev-budget = 3000/16000"
+  ],
+  "notes": "Lower bound. Two load generators were used, but some higher-rate levels still delivered under 99% of the requested queries, so the load generators may still limit the score. Those measurements are excluded.",
+  "date": "2026-10-12"
  },
  {
   "id": "bind-rs620-3_agent_open-run1",
@@ -783,8 +1803,8 @@ window.RESULTS = [
   },
   "config": {
    "search": "agent open",
-   "tuning": "irq1percore-only",
-   "host commands": 3
+   "load generators": 1,
+   "root commands": 3
   },
   "metrics": {
    "max_qps": 720000,
@@ -849,7 +1869,116 @@ window.RESULTS = [
    "per level": "5 trials x 30 s",
    "measurements in search": 9
   },
-  "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.",
+  "changes": [
+   "root: systemctl stop irqbalance",
+   "root: for q in $(seq 0 15); do irq=$(grep -E \"enp4s0f0np0-$q\\$\" /proc/interrupts | awk -F: '{print $1}' | tr -d ' '); echo $q > /proc/irq/$irq/smp_affinity_list; done",
+   "root: systemctl restart named"
+  ],
+  "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded. These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
   "date": "2026-10-09"
+ },
+ {
+  "id": "bind-rs620-3_agent_open-run2",
+  "software": "bind",
+  "version": "",
+  "hardware": {
+   "name": "rs620"
+  },
+  "config": {
+   "search": "agent open",
+   "load generators": 2,
+   "udp-receive-buffer": 16777216,
+   "root commands": 4
+  },
+  "metrics": {
+   "max_qps": 730000,
+   "lower_bound": true
+  },
+  "setup": [
+   {
+    "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+    "commands": [
+     "python3 cloudlab_api/launch.py launch --name dns-rs620 --num-testers 2 --server-software bind --server-hw rs620 --tester-hw rs620",
+     "python3 cloudlab_api/launch.py wait <experiment_id>",
+     "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+    ]
+   },
+   {
+    "title": "On test_host_0: create an SSH key and authorize it on every node",
+    "commands": [
+     "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+     "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+    ]
+   },
+   {
+    "title": "On test_host_0: generate the zone and load it on the name server",
+    "commands": [
+     "cd /local/repository/optimization && bash optimization_setup.sh"
+    ]
+   },
+   {
+    "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+    "commands": [
+     "sudo ethtool -X enp4s0f0np0 equal 1"
+    ]
+   },
+   {
+    "title": "Point the search config at this machine",
+    "commands": [
+     "client_interface: enp4s0f0np0   # in agent_search.yaml / grid_search.yaml",
+     "threads: 40",
+     "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+    ]
+   },
+   {
+    "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+    "commands": [
+     "ssh 10.10.1.3 'sudo ip link set dev enp65s0f0np0 down && sudo ip link set dev enp65s0f0np0 name enp4s0f0np0 && sudo ip link set dev enp4s0f0np0 up'   # same NIC name on both clients",
+     "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+     "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+    ]
+   },
+   {
+    "title": "Run the search (from test_host_0)",
+    "commands": [
+     "cd /local/repository/optimization && python3 agent_search.py --mode open --agent-backend claude-code --max-configs 20"
+    ]
+   }
+  ],
+  "optimize": [
+   {
+    "title": "Host changes (run as root on NS_Local)",
+    "commands": [
+     "sysctl -w net.core.rmem_max=16777216 net.core.rmem_default=16777216 net.core.wmem_max=16777216",
+     "systemctl stop irqbalance",
+     "i=0; for irq in $(grep enp4s0f0np0- /proc/interrupts | grep -v xdp | awk -F: '{print $1}'); do echo $((2*i)) > /proc/irq/$irq/smp_affinity_list; i=$((i+1)); done",
+     "rm -f /tmp/samp.log; cat > /tmp/samp.sh <<'EOF'\n#!/bin/bash\nend=$((SECONDS+3000))\nwhile [ $SECONDS -lt $end ]; do\n  echo \"T $(date +%s)\"\n  grep -E '^cpu' /proc/stat\n  grep Udp: /proc/net/snmp | tail -1\n  p=$(pgrep -x named)\n  [ -n \"$p\" ] && for t in /proc/$p/task/*; do echo \"N $(basename $t) $(cut -d' ' -f14,15,39 $t/stat)\"; done\n  sleep 5\ndone\nEOF\nchmod +x /tmp/samp.sh; setsid nohup /tmp/samp.sh >> /tmp/samp.log 2>&1 < /dev/null &"
+    ]
+   },
+   {
+    "title": "bind configuration",
+    "commands": [
+     "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+     "sudo sed -i -E '/^\\s*(udp-receive-buffer)\\s/d' /etc/bind/named.conf.options",
+     "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+     "sudo named-checkconf /etc/bind/named.conf"
+    ]
+   }
+  ],
+  "measured_with": {
+   "load generators": 2,
+   "tool": "kxdpgun (generic mode)",
+   "per level": "5 trials x 30 s",
+   "measurements in search": 20
+  },
+  "changes": [
+   "named.conf.options: udp-receive-buffer 16777216;",
+   "root: sysctl -w net.core.rmem_max=16777216 net.core.rmem_default=16777216 net.core.wmem_max=16777216",
+   "root: systemctl stop irqbalance",
+   "root: i=0; for irq in $(grep enp4s0f0np0- /proc/interrupts | grep -v xdp | awk -F: '{print $1}'); do echo $((2*i)) > /proc/irq/$irq/smp_affinity_list; i=$((i+1)); done",
+   "root: rm -f /tmp/samp.log; cat > /tmp/samp.sh <<'EOF'\n#!/bin/bash\nend=$((SECONDS+3000))\nwhile [ $SECONDS -lt $end ]; do\n  echo \"T $(date +%s)\"\n  grep -E '^cpu' /proc/stat\n  grep Udp: /proc/net/snmp | tail -1\n  p=$(pgrep -x named)\n  [ -n \"$p\" ] && for t in /proc/$p/task/*; do echo \"N $(basename $t) $(cut -d' ' -f14,15,39 $t/stat)\"; done\n  sleep 5\ndone\nEOF\nchmod +x /tmp/samp.sh; setsid nohup /tmp/samp.sh >> /tmp/samp.log 2>&1 < /dev/null &"
+  ],
+  "notes": "Lower bound. Two load generators were used, but some higher-rate levels still delivered under 99% of the requested queries, so the load generators may still limit the score. Those measurements are excluded. These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
+  "date": "2026-10-12"
  }
 ];

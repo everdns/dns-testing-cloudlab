@@ -4,6 +4,8 @@ A CloudLab experiment profile for deploying and testing DNS resolver and authori
 
 All scripts referenced below are located at `/local/repository/` by default on CloudLab nodes.
 
+To launch this profile from the command line, or by asking Claude Code, see [cloudlab_api/README.md](cloudlab_api/README.md).
+
 ## CloudLab Profile (profile.py)
 
 The `profile.py` script defines the CloudLab experiment topology. When instantiating the experiment, you can configure the following parameters:

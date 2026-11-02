@@ -1,0 +1,133 @@
+{
+ "id": "bind-d710-3_agent_open-run2",
+ "software": "bind",
+ "version": "",
+ "hardware": {
+  "name": "d710"
+ },
+ "config": {
+  "search": "agent open",
+  "load generators": 2,
+  "udp-receive-buffer": 16777216,
+  "udp-send-buffer": 16777216,
+  "reuseport": "no",
+  "zone-statistics": "none",
+  "querylog": "no",
+  "root commands": 9,
+  "reboot": true
+ },
+ "metrics": {
+  "max_qps": 260000,
+  "lower_bound": false
+ },
+ "setup": [
+  {
+   "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+   "commands": [
+    "python3 cloudlab_api/launch.py launch --name dns-d710 --num-testers 2 --server-software bind --server-hw d710 --tester-hw d710",
+    "python3 cloudlab_api/launch.py wait <experiment_id>",
+    "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+   ]
+  },
+  {
+   "title": "On test_host_0: create an SSH key and authorize it on every node",
+   "commands": [
+    "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+    "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+   ]
+  },
+  {
+   "title": "On test_host_0: generate the zone and load it on the name server",
+   "commands": [
+    "cd /local/repository/optimization && bash optimization_setup.sh"
+   ]
+  },
+  {
+   "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+   "commands": [
+    "sudo ethtool -L eno4 rx 1 tx 1"
+   ]
+  },
+  {
+   "title": "Point the search config at this machine",
+   "commands": [
+    "client_interface: eno4   # in agent_search.yaml / grid_search.yaml",
+    "threads: 8",
+    "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+   ]
+  },
+  {
+   "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+   "commands": [
+    "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+    "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+   ]
+  },
+  {
+   "title": "Run the search (from test_host_0)",
+   "commands": [
+    "cd /local/repository/optimization && python3 agent_search.py --mode open --agent-backend claude-code --max-configs 20"
+   ]
+  }
+ ],
+ "optimize": [
+  {
+   "title": "Host changes (run as root on NS_Local)",
+   "commands": [
+    "cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan && chown root:bind /etc/bind/db.workbench.lan && chmod 644 /etc/bind/db.workbench.lan",
+    "printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.core.wmem_default=4194304\\nnet.core.netdev_max_backlog=30000\\nnet.core.default_qdisc=pfifo_fast\\nkernel.sched_autogroup_enabled=0\\n' > /etc/sysctl.d/99-dnsperf.conf",
+    "mkdir -p /etc/systemd/system/named.service.d && printf '[Service]\\nEnvironment=MALLOC_CONF=thp:always,metadata_thp:always\\n' > /etc/systemd/system/named.service.d/thp.conf",
+    "cat > /etc/systemd/system/dnstune.sh <<'EOF'\n#!/bin/bash\ncmp -s /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan || cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $g; done\nfor s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable /sys/devices/system/cpu/cpu*/cpuidle/state4/disable; do echo 1 > $s; done\necho always > /sys/kernel/mm/transparent_hugepage/enabled\necho 5000000 > /sys/kernel/debug/sched/migration_cost_ns\nethtool -G eno4 rx 2040\nsleep 3\nethtool -C eno4 rx-usecs 100 rx-frames 64 rx-usecs-irq 100 rx-frames-irq 64 tx-usecs 200 tx-frames 64 tx-usecs-irq 200 tx-frames-irq 64\nethtool -K eno4 gro off\nsysctl -w net.core.default_qdisc=pfifo_fast\ntc qdisc replace dev eno4 root mq\nfor q in 0 1 2 3 4 5 6 7; do printf '%x' $((1<<q)) > /sys/class/net/eno4/queues/tx-$q/xps_cpus; done\nsystemctl stop irqbalance\nfor q in 0 1 2 3 4 5 6 7; do irq=$(awk -v n=eno4-$q '$NF==n {sub(\":\",\"\",$1); print $1}' /proc/interrupts); [ -n \"$irq\" ] && echo $q > /proc/irq/$irq/smp_affinity_list; done\nsystemctl --no-block stop collectl apache2 packagekit\nexit 0\nEOF",
+    "printf '[Unit]\\nDescription=dns tune\\nAfter=network-online.target\\nWants=network-online.target\\nBefore=named.service\\n[Service]\\nType=oneshot\\nExecStart=/bin/bash /etc/systemd/system/dnstune.sh\\nRemainAfterExit=yes\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnstune.service",
+    "systemctl daemon-reload",
+    "systemctl enable dnstune.service",
+    "sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance apparmor=0 init_on_alloc=0 hardened_usercopy=off cgroup.memory=nokmem audit=0 nowatchdog\"/' /etc/default/grub",
+    "update-grub"
+   ]
+  },
+  {
+   "title": "bind configuration",
+   "commands": [
+    "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+    "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|reuseport|zone-statistics|querylog)\\s/d' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-send-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    reuseport no;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    zone-statistics none;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    querylog no;\\n};/' /etc/bind/named.conf.options",
+    "sudo named-checkconf /etc/bind/named.conf"
+   ]
+  },
+  {
+   "title": "Reboot the name server",
+   "commands": [
+    "sudo reboot"
+   ]
+  }
+ ],
+ "measured_with": {
+  "load generators": 2,
+  "tool": "kxdpgun (generic mode)",
+  "per level": "5 trials x 30 s",
+  "measurements in search": 20
+ },
+ "changes": [
+  "named.conf.options: udp-receive-buffer 16777216;",
+  "named.conf.options: udp-send-buffer 16777216;",
+  "named.conf.options: reuseport no;",
+  "named.conf.options: zone-statistics none;",
+  "named.conf.options: querylog no;",
+  "root: cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan && chown root:bind /etc/bind/db.workbench.lan && chmod 644 /etc/bind/db.workbench.lan",
+  "root: printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.core.wmem_default=4194304\\nnet.core.netdev_max_backlog=30000\\nnet.core.default_qdisc=pfifo_fast\\nkernel.sched_autogroup_enabled=0\\n' > /etc/sysctl.d/99-dnsperf.conf",
+  "root: mkdir -p /etc/systemd/system/named.service.d && printf '[Service]\\nEnvironment=MALLOC_CONF=thp:always,metadata_thp:always\\n' > /etc/systemd/system/named.service.d/thp.conf",
+  "root: cat > /etc/systemd/system/dnstune.sh <<'EOF'\n#!/bin/bash\ncmp -s /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan || cp /users/ckranig/multi_record/db.workbench.lan /etc/bind/db.workbench.lan\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $g; done\nfor s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable /sys/devices/system/cpu/cpu*/cpuidle/state4/disable; do echo 1 > $s; done\necho always > /sys/kernel/mm/transparent_hugepage/enabled\necho 5000000 > /sys/kernel/debug/sched/migration_cost_ns\nethtool -G eno4 rx 2040\nsleep 3\nethtool -C eno4 rx-usecs 100 rx-frames 64 rx-usecs-irq 100 rx-frames-irq 64 tx-usecs 200 tx-frames 64 tx-usecs-irq 200 tx-frames-irq 64\nethtool -K eno4 gro off\nsysctl -w net.core.default_qdisc=pfifo_fast\ntc qdisc replace dev eno4 root mq\nfor q in 0 1 2 3 4 5 6 7; do printf '%x' $((1<<q)) > /sys/class/net/eno4/queues/tx-$q/xps_cpus; done\nsystemctl stop irqbalance\nfor q in 0 1 2 3 4 5 6 7; do irq=$(awk -v n=eno4-$q '$NF==n {sub(\":\",\"\",$1); print $1}' /proc/interrupts); [ -n \"$irq\" ] && echo $q > /proc/irq/$irq/smp_affinity_list; done\nsystemctl --no-block stop collectl apache2 packagekit\nexit 0\nEOF",
+  "root: printf '[Unit]\\nDescription=dns tune\\nAfter=network-online.target\\nWants=network-online.target\\nBefore=named.service\\n[Service]\\nType=oneshot\\nExecStart=/bin/bash /etc/systemd/system/dnstune.sh\\nRemainAfterExit=yes\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnstune.service",
+  "root: systemctl daemon-reload",
+  "root: systemctl enable dnstune.service",
+  "root: sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance apparmor=0 init_on_alloc=0 hardened_usercopy=off cgroup.memory=nokmem audit=0 nowatchdog\"/' /etc/default/grub",
+  "root: update-grub",
+  "reboot the name server"
+ ],
+ "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
+ "date": "2026-10-12"
+}

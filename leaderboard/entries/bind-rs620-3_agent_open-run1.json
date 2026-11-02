@@ -7,8 +7,8 @@
  },
  "config": {
   "search": "agent open",
-  "tuning": "irq1percore-only",
-  "host commands": 3
+  "load generators": 1,
+  "root commands": 3
  },
  "metrics": {
   "max_qps": 720000,
@@ -73,6 +73,11 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 9
  },
- "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.",
+ "changes": [
+  "root: systemctl stop irqbalance",
+  "root: for q in $(seq 0 15); do irq=$(grep -E \"enp4s0f0np0-$q\\$\" /proc/interrupts | awk -F: '{print $1}' | tr -d ' '); echo $q > /proc/irq/$irq/smp_affinity_list; done",
+  "root: systemctl restart named"
+ ],
+ "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded. These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
  "date": "2026-10-09"
 }

@@ -7,6 +7,7 @@
  },
  "config": {
   "search": "agent bounded",
+  "load generators": 1,
   "udp-receive-buffer": 4194304,
   "udp-send-buffer": 4194304,
   "max-udp-size": 1232
@@ -84,6 +85,13 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 11
  },
+ "changes": [
+  "search = agent bounded",
+  "load generators = 1",
+  "udp-receive-buffer = 4194304",
+  "udp-send-buffer = 4194304",
+  "max-udp-size = 1232"
+ ],
  "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.",
  "date": "2026-10-09"
 }

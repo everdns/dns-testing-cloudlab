@@ -42,23 +42,23 @@ td.n{white-space:nowrap}.flag{color:var(--warn);font-size:12px}
 .tag{display:inline-flex;align-items:center;gap:6px}
 details{margin-top:12px}summary{cursor:pointer;color:var(--ink2);font-size:13px}
 details pre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--ink2);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;margin:8px 0 0;overflow-x:auto}
-.foot{font-size:12px;color:var(--ink3)}
+.chg{font-family:var(--mono);font-size:11.5px;color:var(--ink2);overflow-wrap:anywhere;max-width:520px}.st{font-weight:600;font-size:13px;margin:10px 0 4px}.foot{font-size:12px;color:var(--ink3)}
 .btn{font:inherit;font-size:12px;color:var(--ink2);background:none;border:1px solid var(--line);border-radius:6px;padding:3px 9px;cursor:pointer}
 :focus-visible{outline:2px solid var(--s1);outline-offset:2px}
 </style>
 
 <div class="wrap">
 <header>
-  <div class="eyebrow">CloudLab · BIND · max sustainable QPS</div>
-  <h1>Three searches on three machines</h1>
-  <p class="sub">Each environment (r320, d710, rs620) ran the same three searches against BIND: an agent restricted to a fixed set of parameters, a coordinate-descent grid search, and an agent free to change anything on the name server. Runs were 9–10 October 2026, 5 trials of 30 s per level.</p>
+  <div class="eyebrow">CloudLab · BIND · max sustainable QPS · __RUNLABEL__</div>
+  <h1>__TITLE__</h1>
+  <p class="sub">Each environment (r320, d710, rs620) ran the same three searches against BIND: an agent restricted to a fixed set of parameters, a coordinate-descent grid search, and an agent free to change anything on the name server. Runs were __DATES__, with __CLIENTS__ and 5 trials of 30 s per level.</p>
 </header>
 
 <div class="legend" id="legend" aria-label="Search methods"></div>
 
 <section>
   <h2>Best valid result per search</h2>
-  <p class="cap">Highest max sustainable QPS among measurements that the load generator could fully drive. The r320 and d710 are limited by the name server. The rs620 results are capped near what one load generator can send, so its bars are lower bounds.</p>
+  <p class="cap">Highest max sustainable QPS among measurements that the load generators could fully drive (at least 99% of requested queries sent). Bars marked ≥ may be limited by the load generators rather than the name server.</p>
   <div id="fig1"></div>
   <div class="note" id="note"></div>
 </section>
@@ -70,8 +70,8 @@ details pre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:va
 </section>
 
 <section>
-  <h2>Why many rs620 results are excluded</h2>
-  <p class="cap">Fidelity is the share of requested queries the load generator actually sent. The search needs at least 99%. Below that, the generator, not the server, sets the score.</p>
+  <h2>Which rs620 results are excluded</h2>
+  <p class="cap">Fidelity is the share of requested queries the load generators actually sent. The search needs at least 99%. Below that, the generators, not the server, set the score.</p>
   <div id="fig3"></div>
 </section>
 
@@ -81,7 +81,13 @@ details pre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:va
   <div id="sums"></div>
 </section>
 
-<p class="foot">Source: <span style="font-family:var(--mono)">leaderboard/data/&lt;environment&gt;/*.json</span>, copied from <span style="font-family:var(--mono)">~/searches</span> on each load generator. A measurement is valid when its status is ok and its lowest trial fidelity is at least 99%.</p>
+<section>
+  <h2>Every change in each winner</h2>
+  <p class="cap">The complete set applied by the best valid measurement of each search. Open-mode entries list every command as recorded, including the boot-time workarounds.</p>
+  <div id="wins"></div>
+</section>
+
+<p class="foot">Source: <span style="font-family:var(--mono)">leaderboard/__DATADIR__/&lt;environment&gt;/*.json</span>, copied from <span style="font-family:var(--mono)">~/searches</span> on each load generator (__CLIENTS__). A measurement is valid when its status is ok and its lowest trial fidelity is at least 99%.</p>
 </div>
 <div class="tt" id="tt" role="status"></div>
 
@@ -118,9 +124,9 @@ function fig1(){
   const host=document.getElementById("fig1"); host.innerHTML="";
   const W=Math.max(300,host.clientWidth), H=Math.round(Math.min(380,Math.max(260,W*.42)));
   const m={l:46,r:8,t:18,b:46}, iw=W-m.l-m.r, ih=H-m.t-m.b;
-  const top=800000, y=v=>m.t+ih-(v/top)*ih;
+  const mx=Math.max(...ENVS.flatMap(e=>METHODS.map(mm=>stats[e][mm.k].best?stats[e][mm.k].best.qps:0))), stepY=mx>1500000?500000:mx>800000?200000:100000, top=Math.ceil(mx*1.1/stepY)*stepY, y=v=>m.t+ih-(v/top)*ih;
   const svg=el("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":"Best valid max QPS per search and environment"},host);
-  for(let v=0;v<=top;v+=200000){el("line",{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:"var(--grid)","stroke-width":1},svg);
+  for(let v=0;v<=top;v+=stepY){el("line",{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:"var(--grid)","stroke-width":1},svg);
     txt(svg,m.l-8,y(v)+4,v?k(v):"0",{"text-anchor":"end"})}
   const gw=iw/ENVS.length, bw=Math.min(54,(gw-36)/3);
   ENVS.forEach((e,gi)=>{
@@ -164,7 +170,7 @@ function fig2(){
       if(path) path+=` H${x(maxI)}`;
       el("path",{d:path,fill:"none",stroke:mm.c,"stroke-width":2,"stroke-linejoin":"round"},svg);
       pts.forEach(r=>{const c=el("circle",{cx:x(r.i),cy:y(r.qps),r:3,fill:mm.c,stroke:"var(--surface)","stroke-width":1.5},svg);
-        const tip=`<b>${mm.name}</b> · #${r.i}<div class="m">${fmt(r.qps)} QPS</div><div class="d">${r.desc||"baseline"}</div>`;
+        const tip=`<b>${mm.name}</b> · #${r.i}<div class="m">${fmt(r.qps)} QPS</div><div class="d">${chg(r.desc)}</div>`;
         c.addEventListener("mousemove",ev=>showTip(ev,tip));c.addEventListener("mouseleave",hideTip)});
     });
   });
@@ -188,14 +194,36 @@ function fig3(){
     const tip=`<b>${mm.name}</b> · #${r.i}<div class="m">${r.fid.toFixed(1)}% sent</div><div class="d">reported ${fmt(r.qps)} QPS${bad?" · excluded":""}</div>`;
     c.addEventListener("mousemove",ev=>showTip(ev,tip));c.addEventListener("mouseleave",hideTip)}));
   const cap=document.createElement("p");cap.className="foot";cap.style.marginTop="8px";
-  cap.textContent="Filled dots met the 99% threshold; hollow dots did not. The rows at 25–26% were scored 2.3M to 3.0M QPS, a rate the load generator never actually sent.";
+  const lows=METHODS.flatMap(mm=>stats[e][mm.k].rows.filter(r=>r.fid!=null&&r.fid<99));
+  const worst=lows.reduce((a,r)=>!a||r.fid<a.fid?r:a,null);
+  cap.textContent="Filled dots met the 99% threshold; hollow dots did not."+(lows.length?` ${lows.length} measurement(s) fell below it; the lowest, ${worst.fid.toFixed(1)}%, was scored ${fmt(worst.qps)} QPS, a rate the load generators never fully sent.`:" None fell below it.");
   host.appendChild(cap);
 }
 
 // ---- Note, table, summaries ----
 function notes(){
-  const rs=stats.rs620, ex=METHODS.reduce((a,mm)=>a+rs[mm.k].excluded,0), top=Math.max(...METHODS.flatMap(mm=>rs[mm.k].rows.filter(r=>r.status==="ok").map(r=>r.qps)));
-  document.getElementById("note").innerHTML=`<b>rs620 caveat.</b> ${ex} of ${METHODS.reduce((a,mm)=>a+rs[mm.k].rows.length,0)} rs620 measurements fell below the 99% fidelity threshold, and the largest reported score (${fmt(top)} QPS) is an artifact: at that rate the load generator sent only about a quarter of the queries. The best valid rs620 result is 720k QPS, and many rows between 650k and 780k sit at 95–98% fidelity, which is about what one load generator can send. The server can likely do more, so treat the rs620 bars as lower bounds.`;
+  const rs=stats.rs620, all=METHODS.flatMap(mm=>rs[mm.k].rows), ex=all.filter(r=>r.status==="ok"&&!valid(r));
+  const worst=ex.reduce((a,r)=>!a||r.qps>a.qps?r:a,null), bestValid=Math.max(...METHODS.map(mm=>rs[mm.k].best?rs[mm.k].best.qps:0));
+  document.getElementById("note").innerHTML=`<b>rs620 caveat.</b> ${ex.length} of ${all.length} rs620 measurements fell below the 99% fidelity threshold`+
+    (worst?`; the largest reported score (${fmt(worst.qps)} QPS) was sent at only ${worst.fid.toFixed(1)}% fidelity`:"")+
+    `. The best valid rs620 result is ${fmt(bestValid)} QPS. __CLIENTS_NOTE__ Treat the rs620 bars as lower bounds.`;
+}
+const escHtml=x=>String(x).replace(/[&<]/g,c=>c==="&"?"&amp;":"&lt;");
+// Tooltip text for one measurement; open-mode descriptions can be very long.
+function chg(d){
+  if(!d) return "baseline (no changes)";
+  return `<span class="chg">${escHtml(d.length>260?d.slice(0,260)+"…":d)}</span>`;
+}
+// Short form for the table cell; the "Every change in each winner" section below has the full commands.
+function chgList(w){
+  if(!w) return "";
+  return w.changes.map(([t,l])=>{
+    if(/^Parameter values/.test(t)){
+      const ch=l.filter(x=>!/= default$/.test(x));
+      return ch.length?escHtml(ch.join(", ")):"baseline (all defaults)";
+    }
+    return `${escHtml(t)}: ${l.length}`;
+  }).join("<br>");
 }
 function table(){
   let h=`<thead><tr><th>Machine</th><th>Search</th><th class="n">Best valid QPS</th><th class="n">First</th><th class="n">Change</th><th class="n">Runs</th><th class="n">Hours</th><th>What won</th></tr></thead><tbody>`;
@@ -205,12 +233,19 @@ function table(){
     h+=`<tr><td><b>${DATA[e].name}</b></td><td><span class="tag"><i class="sw" style="background:${mm.c}"></i>${mm.name}</span></td>
       <td class="n">${b?fmt(b.qps):"–"}${e==="rs620"?" ≥":""}</td><td class="n">${fmt(s.first.qps)}</td><td class="n">${ch==null?"–":(ch>=0?"+":"")+ch+"%"}</td>
       <td class="n">${s.rows.length}</td><td class="n">${s.hours.toFixed(1)}</td>
-      <td>${b?(b.desc||"baseline"):""}${extra?`<div class="flag">${extra}</div>`:""}</td></tr>`}));
+      <td>${b?chgList(DATA[e].searches[mm.k].winner):""}${extra?`<div class="flag">${extra}</div>`:""}</td></tr>`}));
   document.getElementById("tbl").innerHTML=h+"</tbody>";
   document.getElementById("sums").innerHTML=ENVS.flatMap(e=>METHODS.filter(mm=>mm.k!=="2_coordinate_descent").map(mm=>
     `<details><summary>${DATA[e].name} · ${mm.name}: agent's written report</summary><pre>${DATA[e].searches[mm.k].summary.replace(/[&<]/g,c=>c==="&"?"&amp;":"&lt;")}</pre></details>`)).join("");
 }
+function wins(){
+  const esc=x=>String(x).replace(/[&<]/g,c=>c==="&"?"&amp;":"&lt;");
+  document.getElementById("wins").innerHTML=ENVS.flatMap(e=>METHODS.map(mm=>{
+    const w=DATA[e].searches[mm.k].winner; if(!w) return "";
+    const body=w.changes.map(([t,l])=>`<div class="st">${esc(t)}</div><pre>${esc(l.join("\n"))}</pre>`).join("");
+    return `<details><summary><span class="tag"><i class="sw" style="background:${mm.c}"></i>${DATA[e].name} · ${mm.name} · #${w.i} · ${fmt(w.qps)} QPS</span></summary>${w.hypothesis?`<p class="cap" style="margin-top:8px">${esc(w.hypothesis)}</p>`:""}${body}</details>`}).filter(Boolean)).join("");
+}
 function draw(){fig1();fig2();fig3()}
-notes();table();draw();
+notes();table();wins();draw();
 let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(draw,120)});
 </script>

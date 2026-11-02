@@ -1,0 +1,136 @@
+{
+ "id": "bind-r320-3_agent_open-run2",
+ "software": "bind",
+ "version": "",
+ "hardware": {
+  "name": "r320"
+ },
+ "config": {
+  "search": "agent open",
+  "load generators": 2,
+  "udp-receive-buffer": 16777216,
+  "udp-send-buffer": 4194304,
+  "message-compression": "no",
+  "zone-statistics": "none",
+  "root commands": 12,
+  "reboot": true
+ },
+ "metrics": {
+  "max_qps": 540000,
+  "lower_bound": false
+ },
+ "setup": [
+  {
+   "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+   "commands": [
+    "python3 cloudlab_api/launch.py launch --name dns-r320 --num-testers 2 --server-software bind --server-hw r320 --tester-hw r320",
+    "python3 cloudlab_api/launch.py wait <experiment_id>",
+    "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+   ]
+  },
+  {
+   "title": "On test_host_0: create an SSH key and authorize it on every node",
+   "commands": [
+    "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+    "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+   ]
+  },
+  {
+   "title": "On test_host_0: generate the zone and load it on the name server",
+   "commands": [
+    "cd /local/repository/optimization && bash optimization_setup.sh"
+   ]
+  },
+  {
+   "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+   "commands": [
+    "sudo ethtool -L enp8s0d1 rx 1 tx 1"
+   ]
+  },
+  {
+   "title": "Point the search config at this machine",
+   "commands": [
+    "client_interface: enp8s0d1   # in agent_search.yaml / grid_search.yaml",
+    "threads: 16",
+    "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+   ]
+  },
+  {
+   "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+   "commands": [
+    "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+    "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+   ]
+  },
+  {
+   "title": "Run the search (from test_host_0)",
+   "commands": [
+    "cd /local/repository/optimization && python3 agent_search.py --mode open --agent-backend claude-code --max-configs 20"
+   ]
+  }
+ ],
+ "optimize": [
+  {
+   "title": "Host changes (run as root on NS_Local)",
+   "commands": [
+    "cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan",
+    "sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance intel_idle.max_cstate=1 processor.max_cstate=1 transparent_hugepage=always\"/' /etc/default/grub",
+    "update-grub",
+    "printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.ipv4.conf.all.rp_filter=0\\nnet.ipv4.conf.default.rp_filter=0\\nnet.core.default_qdisc=pfifo_fast\\n' > /etc/sysctl.d/99-dnsperf.conf",
+    "cat > /etc/systemd/system/dnsperf-turbo.sh <<'EOF'\n#!/bin/bash\nmodprobe msr\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); v=struct.unpack('<Q',os.pread(fd,8,0x1a0))[0]; os.pwrite(fd,struct.pack('<Q',v&~(1<<38)),0x1a0); os.close(fd)\"\necho 0 > /sys/devices/system/cpu/intel_pstate/no_turbo\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > $g; echo performance > $g; done\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); os.pwrite(fd,struct.pack('<Q',0x1d00),0x199); os.close(fd)\"\necho always > /sys/kernel/mm/transparent_hugepage/enabled\nnohup /bin/bash /etc/systemd/system/dnsperf-sampler.sh >/dev/null 2>&1 &\nexit 0\nEOF",
+    "cat > /etc/systemd/system/dnsperf-sampler.sh <<'EOF'\n#!/bin/bash\nP=/usr/lib/linux-tools/5.15.0-187-generic/perf\nO=/var/local/dnsperf-run18\nmkdir -p $O; rm -f $O/*\nnstat -n >/dev/null\nfor i in $(seq 1 400); do\n  sleep 4\n  r=$(nstat UdpInDatagrams 2>/dev/null | awk '$1==\"UdpInDatagrams\"{print int($2/4)}')\n  echo \"$(date +%T) ${r:-0}\" >> $O/rates\n  if [ \"${r:-0}\" -gt 560000 ]; then\n    $P stat -a -e cycles,ref-cycles,instructions -- sleep 5 > $O/freq.txt 2>&1\n    $P record -F 199 -a -g -o $O/perf.data -- sleep 6 >/dev/null 2>&1\n    exit 0\n  fi\ndone\nEOF",
+    "cat > /etc/systemd/system/dnsperf-zoneguard.sh <<'EOF'\n#!/bin/bash\nfor i in $(seq 1 600); do\n  s=$(stat -c %s /etc/bind/db.workbench.lan 2>/dev/null || echo 0)\n  if [ \"$s\" -lt 1000000 ]; then cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan; logger dnsperf-zoneguard restored zone; rndc reload workbench.lan; fi\n  if [ $i -le 90 ]; then\n    ethtool -K enp8s0d1 gro off >/dev/null 2>&1\n    sysctl -qw net.ipv4.conf.enp8s0d1.rp_filter=0 net.ipv4.conf.all.rp_filter=0 net.core.default_qdisc=pfifo_fast\n    if ethtool -c enp8s0d1 | grep -q 'Adaptive RX: on'; then ethtool -C enp8s0d1 adaptive-rx off rx-usecs 256 rx-frames 512 tx-usecs 256 tx-frames 256 >/dev/null 2>&1; logger dnsperf coalesce set; fi\n    if tc qdisc show dev enp8s0d1 | grep -q fq_codel; then tc qdisc replace dev enp8s0d1 root handle 1: mq; logger dnsperf qdisc set; fi\n  fi\n  sleep 2\ndone\nEOF",
+    "chmod +x /etc/systemd/system/dnsperf-*.sh",
+    "printf '[Unit]\\nDescription=dnsperf turbo\\n[Service]\\nType=oneshot\\nRemainAfterExit=yes\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-turbo.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-turbo.service",
+    "printf '[Unit]\\nDescription=dnsperf zone guard\\n[Service]\\nType=simple\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-zoneguard.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-zoneguard.service",
+    "systemctl daemon-reload",
+    "systemctl enable dnsperf-turbo.service dnsperf-zoneguard.service"
+   ]
+  },
+  {
+   "title": "bind configuration",
+   "commands": [
+    "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+    "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|message-compression|zone-statistics)\\s/d' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-receive-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-send-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    message-compression no;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    zone-statistics none;\\n};/' /etc/bind/named.conf.options",
+    "sudo named-checkconf /etc/bind/named.conf"
+   ]
+  },
+  {
+   "title": "Reboot the name server",
+   "commands": [
+    "sudo reboot"
+   ]
+  }
+ ],
+ "measured_with": {
+  "load generators": 2,
+  "tool": "kxdpgun (generic mode)",
+  "per level": "5 trials x 30 s",
+  "measurements in search": 20
+ },
+ "changes": [
+  "named.conf.options: udp-receive-buffer 16777216;",
+  "named.conf.options: udp-send-buffer 4194304;",
+  "named.conf.options: message-compression no;",
+  "named.conf.options: zone-statistics none;",
+  "root: cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan",
+  "root: sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off cpufreq.default_governor=performance intel_idle.max_cstate=1 processor.max_cstate=1 transparent_hugepage=always\"/' /etc/default/grub",
+  "root: update-grub",
+  "root: printf 'net.core.rmem_max=16777216\\nnet.core.rmem_default=16777216\\nnet.core.wmem_max=16777216\\nnet.ipv4.conf.all.rp_filter=0\\nnet.ipv4.conf.default.rp_filter=0\\nnet.core.default_qdisc=pfifo_fast\\n' > /etc/sysctl.d/99-dnsperf.conf",
+  "root: cat > /etc/systemd/system/dnsperf-turbo.sh <<'EOF'\n#!/bin/bash\nmodprobe msr\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); v=struct.unpack('<Q',os.pread(fd,8,0x1a0))[0]; os.pwrite(fd,struct.pack('<Q',v&~(1<<38)),0x1a0); os.close(fd)\"\necho 0 > /sys/devices/system/cpu/intel_pstate/no_turbo\nfor g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > $g; echo performance > $g; done\npython3 -c \"import struct,os\nfor c in range(os.cpu_count()):\n    fd=os.open('/dev/cpu/%d/msr'%c,os.O_RDWR); os.pwrite(fd,struct.pack('<Q',0x1d00),0x199); os.close(fd)\"\necho always > /sys/kernel/mm/transparent_hugepage/enabled\nnohup /bin/bash /etc/systemd/system/dnsperf-sampler.sh >/dev/null 2>&1 &\nexit 0\nEOF",
+  "root: cat > /etc/systemd/system/dnsperf-sampler.sh <<'EOF'\n#!/bin/bash\nP=/usr/lib/linux-tools/5.15.0-187-generic/perf\nO=/var/local/dnsperf-run18\nmkdir -p $O; rm -f $O/*\nnstat -n >/dev/null\nfor i in $(seq 1 400); do\n  sleep 4\n  r=$(nstat UdpInDatagrams 2>/dev/null | awk '$1==\"UdpInDatagrams\"{print int($2/4)}')\n  echo \"$(date +%T) ${r:-0}\" >> $O/rates\n  if [ \"${r:-0}\" -gt 560000 ]; then\n    $P stat -a -e cycles,ref-cycles,instructions -- sleep 5 > $O/freq.txt 2>&1\n    $P record -F 199 -a -g -o $O/perf.data -- sleep 6 >/dev/null 2>&1\n    exit 0\n  fi\ndone\nEOF",
+  "root: cat > /etc/systemd/system/dnsperf-zoneguard.sh <<'EOF'\n#!/bin/bash\nfor i in $(seq 1 600); do\n  s=$(stat -c %s /etc/bind/db.workbench.lan 2>/dev/null || echo 0)\n  if [ \"$s\" -lt 1000000 ]; then cp -p /var/local/dnsperf-orig/db.workbench.lan /etc/bind/db.workbench.lan; logger dnsperf-zoneguard restored zone; rndc reload workbench.lan; fi\n  if [ $i -le 90 ]; then\n    ethtool -K enp8s0d1 gro off >/dev/null 2>&1\n    sysctl -qw net.ipv4.conf.enp8s0d1.rp_filter=0 net.ipv4.conf.all.rp_filter=0 net.core.default_qdisc=pfifo_fast\n    if ethtool -c enp8s0d1 | grep -q 'Adaptive RX: on'; then ethtool -C enp8s0d1 adaptive-rx off rx-usecs 256 rx-frames 512 tx-usecs 256 tx-frames 256 >/dev/null 2>&1; logger dnsperf coalesce set; fi\n    if tc qdisc show dev enp8s0d1 | grep -q fq_codel; then tc qdisc replace dev enp8s0d1 root handle 1: mq; logger dnsperf qdisc set; fi\n  fi\n  sleep 2\ndone\nEOF",
+  "root: chmod +x /etc/systemd/system/dnsperf-*.sh",
+  "root: printf '[Unit]\\nDescription=dnsperf turbo\\n[Service]\\nType=oneshot\\nRemainAfterExit=yes\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-turbo.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-turbo.service",
+  "root: printf '[Unit]\\nDescription=dnsperf zone guard\\n[Service]\\nType=simple\\nExecStart=/bin/bash /etc/systemd/system/dnsperf-zoneguard.sh\\n[Install]\\nWantedBy=multi-user.target\\n' > /etc/systemd/system/dnsperf-zoneguard.service",
+  "root: systemctl daemon-reload",
+  "root: systemctl enable dnsperf-turbo.service dnsperf-zoneguard.service",
+  "reboot the name server"
+ ],
+ "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
+ "date": "2026-10-12"
+}

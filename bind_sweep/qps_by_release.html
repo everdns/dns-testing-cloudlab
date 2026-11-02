@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIND Max QPS by Release</title>
+<style>
+:root{--surface-1:#fcfcfb;--text-primary:#0b0b0b;--text-secondary:#52514e;--grid:#e7e6e2;--axis:#c9c8c2;
+ --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--surface-1:#1a1a19;--text-primary:#f0efec;--text-secondary:#c3c2b7;--grid:#2b2b29;--axis:#4a4944;
+ --s1:#3987e5;--s2:#d95926;--s3:#199e70;color-scheme:dark}}
+:root[data-theme="dark"]{--surface-1:#1a1a19;--text-primary:#f0efec;--text-secondary:#c3c2b7;--grid:#2b2b29;--axis:#4a4944;
+ --s1:#3987e5;--s2:#d95926;--s3:#199e70;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-1);color:var(--text-primary);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:24px 16px}
+h1{font-size:20px;margin:0 0 4px;font-weight:600}
+.sub{color:var(--text-secondary);margin:0 0 16px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 8px;color:var(--text-secondary)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:14px;height:3px;border-radius:2px;display:inline-block}
+.wrap{position:relative}
+svg{width:100%;height:auto;display:block;overflow:visible}
+text{fill:var(--text-secondary);font-size:12px}
+.lab{font-weight:600;font-size:11px;fill:var(--text-primary);stroke:var(--surface-1);stroke-width:3px;paint-order:stroke}
+.legend svg.key{width:38px;height:12px;display:inline-block;overflow:visible}
+#tip{position:absolute;pointer-events:none;background:var(--surface-1);border:1px solid var(--axis);border-radius:6px;padding:8px 10px;
+ font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.15);display:none;white-space:nowrap}
+#tip b{color:var(--text-primary)}#tip .r{display:flex;gap:6px;align-items:center;color:var(--text-primary)}
+#tip .r i{width:8px;height:8px;border-radius:50%;display:inline-block}
+button{margin-top:12px;background:none;border:1px solid var(--axis);color:var(--text-primary);border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+table{border-collapse:collapse;width:100%;margin-top:12px;display:none;font-variant-numeric:tabular-nums}
+th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--grid)}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+.note{color:var(--text-secondary);font-size:12px;margin-top:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>Max sustainable QPS by BIND release date</h1>
+<p class="sub">Default BIND config, kxdpgun load from two clients, 99% answer-rate threshold. One point per release.</p>
+<div class="legend" id="legend"></div>
+<div class="wrap"><svg id="chart" role="img" aria-label="Line chart of max sustainable QPS against BIND release date for rs620, d710 and r320"></svg><div id="tip"></div></div>
+<button id="tbtn" type="button">Show table</button>
+<table id="tbl"></table>
+<p class="note" id="note"></p>
+</main>
+<script>
+const ROWS = [{"v": "9.16.21", "date": "2021-09-15", "branch": "9.16", "rs620": 520000, "d710": 200000, "r320": 340000}, {"v": "9.17.18", "date": "2021-09-15", "branch": "9.17", "rs620": 470000, "d710": 170000, "r320": 300000}, {"v": "9.16.25", "date": "2022-01-19", "branch": "9.16", "rs620": 530000, "d710": 190000, "r320": 350000}, {"v": "9.17.22", "date": "2022-01-19", "branch": "9.17", "rs620": 470000, "d710": 170000, "r320": 300000}, {"v": "9.16.28", "date": "2022-04-20", "branch": "9.16", "rs620": 570000, "d710": 230000, "r320": 380000}, {"v": "9.18.2", "date": "2022-04-20", "branch": "9.18", "rs620": 510000, "d710": 200000, "r320": 400000}, {"v": "9.19.0", "date": "2022-04-20", "branch": "9.19", "rs620": 520000, "d710": 200000, "r320": 330000}, {"v": "9.16.31", "date": "2022-07-20", "branch": "9.16", "rs620": 570000, "d710": 230000, "r320": 380000}, {"v": "9.18.5", "date": "2022-07-20", "branch": "9.18", "rs620": 510000, "d710": 200000, "r320": 400000}, {"v": "9.19.3", "date": "2022-07-20", "branch": "9.19", "rs620": 510000, "d710": 200000, "r320": 340000}, {"v": "9.16.34", "date": "2022-10-19", "branch": "9.16", "rs620": 570000, "d710": 230000, "r320": 380000}, {"v": "9.18.8", "date": "2022-10-19", "branch": "9.18", "rs620": 510000, "d710": 190000, "r320": 330000}, {"v": "9.19.6", "date": "2022-10-19", "branch": "9.19", "rs620": 520000, "d710": 190000, "r320": 340000}, {"v": "9.16.36", "date": "2022-12-21", "branch": "9.16", "rs620": 570000, "d710": 220000, "r320": 380000}, {"v": "9.18.10", "date": "2022-12-21", "branch": "9.18", "rs620": 510000, "d710": 190000, "r320": 340000}, {"v": "9.19.8", "date": "2022-12-21", "branch": "9.19", "rs620": 510000, "d710": 200000, "r320": 350000}, {"v": "9.16.40", "date": "2023-04-19", "branch": "9.16", "rs620": 550000, "d710": 220000, "r320": 380000}, {"v": "9.18.14", "date": "2023-04-19", "branch": "9.18", "rs620": 500000, "d710": 180000, "r320": 330000}, {"v": "9.19.12", "date": "2023-04-19", "branch": "9.19", "rs620": 510000, "d710": 200000, "r320": 410000}, {"v": "9.16.42", "date": "2023-06-21", "branch": "9.16", "rs620": 570000, "d710": 220000, "r320": 370000}, {"v": "9.18.17", "date": "2023-07-19", "branch": "9.18", "rs620": 490000, "d710": 190000, "r320": 330000}, {"v": "9.19.15", "date": "2023-07-19", "branch": "9.19", "rs620": 500000, "d710": 200000, "r320": 340000}, {"v": "9.16.44", "date": "2023-09-20", "branch": "9.16", "rs620": 550000, "d710": 220000, "r320": 380000}, {"v": "9.18.19", "date": "2023-09-20", "branch": "9.18", "rs620": 490000, "d710": 200000, "r320": 330000}, {"v": "9.19.17", "date": "2023-09-20", "branch": "9.19", "rs620": 510000, "d710": 200000, "r320": 340000}, {"v": "9.16.45", "date": "2023-11-15", "branch": "9.16", "rs620": 560000, "d710": 220000, "r320": 380000}, {"v": "9.18.21", "date": "2023-12-20", "branch": "9.18", "rs620": 510000, "d710": 190000, "r320": 330000}, {"v": "9.19.19", "date": "2023-12-20", "branch": "9.19", "rs620": 470000, "d710": 200000, "r320": 330000}, {"v": "9.16.50", "date": "2024-04-17", "branch": "9.16", "rs620": 580000, "d710": 220000, "r320": 380000}, {"v": "9.18.26", "date": "2024-04-17", "branch": "9.18", "rs620": 510000, "d710": 190000, "r320": 330000}, {"v": "9.19.23", "date": "2024-04-17", "branch": "9.19", "rs620": 510000, "d710": 190000, "r320": 330000}, {"v": "9.19.24", "date": "2024-05-15", "branch": "9.19", "rs620": 510000, "d710": 190000, "r320": 400000}, {"v": "9.18.28", "date": "2024-07-23", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 330000}, {"v": "9.20.0", "date": "2024-07-23", "branch": "9.20", "rs620": 470000, "d710": 190000, "r320": 330000}, {"v": "9.18.31", "date": "2024-10-16", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 320000}, {"v": "9.20.3", "date": "2024-10-16", "branch": "9.20", "rs620": 500000, "d710": 190000, "r320": 330000}, {"v": "9.21.2", "date": "2024-10-16", "branch": "9.21", "rs620": 500000, "d710": 190000, "r320": 400000}, {"v": "9.18.32", "date": "2024-12-11", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 320000}, {"v": "9.20.4", "date": "2024-12-11", "branch": "9.20", "rs620": 510000, "d710": 190000, "r320": 340000}, {"v": "9.21.3", "date": "2024-12-11", "branch": "9.21", "rs620": 490000, "d710": 190000, "r320": 320000}, {"v": "9.18.36", "date": "2025-04-16", "branch": "9.18", "rs620": 500000, "d710": 190000, "r320": 320000}, {"v": "9.20.8", "date": "2025-04-16", "branch": "9.20", "rs620": 470000, "d710": 190000, "r320": 320000}, {"v": "9.18.38", "date": "2025-07-16", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 320000}, {"v": "9.20.11", "date": "2025-07-16", "branch": "9.20", "rs620": 500000, "d710": 180000, "r320": 330000}, {"v": "9.18.41", "date": "2025-10-22", "branch": "9.18", "rs620": 500000, "d710": 190000, "r320": 320000}, {"v": "9.20.15", "date": "2025-10-22", "branch": "9.20", "rs620": 500000, "d710": 190000, "r320": 330000}, {"v": "9.18.44", "date": "2026-01-21", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 320000}, {"v": "9.20.18", "date": "2026-01-21", "branch": "9.20", "rs620": 500000, "d710": 190000, "r320": 320000}, {"v": "9.18.48", "date": "2026-04-01", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 330000}, {"v": "9.20.22", "date": "2026-04-01", "branch": "9.20", "rs620": 470000, "d710": 190000, "r320": 330000}, {"v": "9.18.50", "date": "2026-06-17", "branch": "9.18", "rs620": 470000, "d710": 190000, "r320": 330000}, {"v": "9.20.26", "date": "2026-07-22", "branch": "9.20", "rs620": 500000, "d710": 190000, "r320": 330000}, {"v": "9.20.30", "date": "2026-10-21", "branch": "9.20", "rs620": 470000, "d710": 180000, "r320": 320000}], EXCLUDED = ["9.21.7", "9.21.10", "9.21.14", "9.21.17", "9.21.21", "9.21.24", "9.21.27"];
+const ENVS = [["rs620","--s1"],["d710","--s2"],["r320","--s3"]];
+const BRANCHES=[...new Set(ROWS.map(r=>r.branch))].sort((a,b)=>a.split(".")[1]-b.split(".")[1]);
+const BSTY={"9.16":{d:"",m:"circle"},"9.17":{d:"2 5",m:"square"},"9.18":{d:"9 4",m:"triangle"},
+ "9.19":{d:"11 3 2 3",m:"diamond"},"9.20":{d:"16 5",m:"cross"},"9.21":{d:"1 5",m:"plus"}};
+const W=960,H=460,M={l:64,r:24,t:12,b:40};
+const svg=document.getElementById("chart"),tip=document.getElementById("tip");
+svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const t=d=>Date.parse(d);
+const x0=t("2021-07-01"),x1=t("2026-12-01");
+const X=d=>M.l+(t(d)-x0)/(x1-x0)*(W-M.l-M.r);
+const ymax=650000,Y=v=>H-M.b-v/ymax*(H-M.t-M.b);
+const ns="http://www.w3.org/2000/svg";
+const el=(n,a,p=svg,txt)=>{const e=document.createElementNS(ns,n);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;p.appendChild(e);return e};
+function marker(m,cx,cy,col,p=svg){
+ const ring=css("--surface-1"),s=4;
+ if(m==="circle")return el("circle",{cx,cy,r:3.5,fill:col,stroke:ring,"stroke-width":2},p);
+ if(m==="square")return el("rect",{x:cx-s+.5,y:cy-s+.5,width:2*s-1,height:2*s-1,fill:col,stroke:ring,"stroke-width":2},p);
+ if(m==="triangle")return el("polygon",{points:`${cx},${cy-s-1} ${cx+s+1},${cy+s} ${cx-s-1},${cy+s}`,fill:col,stroke:ring,"stroke-width":2,"stroke-linejoin":"round"},p);
+ if(m==="diamond")return el("polygon",{points:`${cx},${cy-s-1} ${cx+s+1},${cy} ${cx},${cy+s+1} ${cx-s-1},${cy}`,fill:col,stroke:ring,"stroke-width":2,"stroke-linejoin":"round"},p);
+ const d=m==="plus"?`M${cx-s},${cy}H${cx+s}M${cx},${cy-s}V${cy+s}`:`M${cx-s+1},${cy-s+1}L${cx+s-1},${cy+s-1}M${cx+s-1},${cy-s+1}L${cx-s+1},${cy+s-1}`;
+ return el("path",{d,stroke:col,"stroke-width":2.5,"stroke-linecap":"round",fill:"none"},p);
+}
+function draw(){
+ svg.innerHTML="";
+ for(let v=0;v<=600000;v+=100000){
+  el("line",{x1:M.l,x2:W-M.r,y1:Y(v),y2:Y(v),stroke:css("--grid"),"stroke-width":1});
+  el("text",{x:M.l-8,y:Y(v)+4,"text-anchor":"end"},svg,v?v/1000+"k":"0");
+ }
+ el("line",{x1:M.l,x2:W-M.r,y1:Y(0),y2:Y(0),stroke:css("--axis")});
+ for(let y=2022;y<=2026;y++){
+  const d=`${y}-01-01`;el("line",{x1:X(d),x2:X(d),y1:Y(0),y2:Y(0)+5,stroke:css("--axis")});
+  el("text",{x:X(d),y:H-M.b+20,"text-anchor":"middle"},svg,y);
+ }
+ el("text",{x:14,y:H/2,transform:`rotate(-90 14 ${H/2})`,"text-anchor":"middle"},svg,"Max sustainable QPS");
+ ENVS.forEach(([e,c])=>BRANCHES.forEach(b=>{
+  const pts=ROWS.filter(r=>r.branch===b&&r[e]!=null);
+  if(!pts.length)return;
+  const st=BSTY[b],col=css(c);
+  if(pts.length>1)el("polyline",{points:pts.map(r=>`${X(r.date)},${Y(r[e])}`).join(" "),fill:"none",stroke:col,"stroke-width":2,"stroke-dasharray":st.d,"stroke-linejoin":"round","stroke-linecap":"round"});
+  pts.forEach(r=>marker(st.m,X(r.date),Y(r[e]),col));
+ }));
+ el("line",{id:"cross",x1:0,x2:0,y1:M.t,y2:Y(0),stroke:css("--axis"),"stroke-dasharray":"3 3",visibility:"hidden"});
+ el("rect",{id:"hit",x:M.l,y:M.t,width:W-M.l-M.r,height:H-M.t-M.b,fill:"transparent"});
+ const hit=document.getElementById("hit"),cross=document.getElementById("cross");
+ hit.addEventListener("pointermove",ev=>{
+  const b=svg.getBoundingClientRect(),px=(ev.clientX-b.left)*W/b.width;
+  let best=0,bd=1e9;ROWS.forEach((r,i)=>{const d=Math.abs(X(r.date)-px);if(d<bd){bd=d;best=i}});
+  const r=ROWS[best],same=ROWS.filter(q=>q.date===r.date);
+  cross.setAttribute("x1",X(r.date));cross.setAttribute("x2",X(r.date));cross.setAttribute("visibility","visible");
+  tip.innerHTML=`<div style="color:${css("--text-secondary")}">Released ${r.date}</div>`+same.map(q=>
+   `<div style="margin-top:6px"><b>BIND ${q.v}</b></div>`+
+   ENVS.map(([e,c])=>`<div class="r"><i style="background:${css(c)}"></i>${e}: ${q[e]!=null?q[e].toLocaleString()+" QPS":"n/a"}</div>`).join("")).join("");
+  tip.style.display="block";
+  const wb=svg.parentElement.getBoundingClientRect(),tx=ev.clientX-wb.left+14;
+  tip.style.left=Math.min(tx,wb.width-tip.offsetWidth-4)+"px";tip.style.top=Math.max(0,ev.clientY-wb.top-20)+"px";
+ });
+ hit.addEventListener("pointerleave",()=>{tip.style.display="none";cross.setAttribute("visibility","hidden")});
+}
+document.getElementById("legend").innerHTML=ENVS.map(([e,c])=>`<span><i style="background:var(${c})"></i>${e}</span>`).join("")+
+ `<span style="margin-left:8px">Branch:</span>`+BRANCHES.map(b=>`<span><svg class="key" width="38" height="12" viewBox="0 0 38 12" data-b="${b}"></svg>${b}</span>`).join("");
+function drawKeys(){document.querySelectorAll("svg.key").forEach(k=>{k.innerHTML="";const st=BSTY[k.dataset.b],col=css("--text-secondary");
+ el("line",{x1:1,x2:37,y1:6,y2:6,stroke:col,"stroke-width":2,"stroke-dasharray":st.d,"stroke-linecap":"round"},k);marker(st.m,19,6,col,k)})}
+drawKeys();
+document.getElementById("tbl").innerHTML="<thead><tr><th>Version</th><th>Released</th>"+ENVS.map(([e])=>`<th>${e}</th>`).join("")+"</tr></thead><tbody>"+
+ ROWS.map(r=>`<tr><td>${r.v}</td><td>${r.date}</td>`+ENVS.map(([e])=>`<td>${r[e]!=null?r[e].toLocaleString():"–"}</td>`).join("")+"</tr>").join("")+"</tbody>";
+document.getElementById("note").textContent=`${ROWS.length} releases plotted. Left out (failed to build/verify or measured 0 QPS): ${EXCLUDED.join(", ")}. Each line is one hardware type and one major BIND branch; the color is the hardware and the dash pattern and marker are the branch.`;
+const tb=document.getElementById("tbtn"),tbl=document.getElementById("tbl");
+tb.onclick=()=>{const s=tbl.style.display!=="table";tbl.style.display=s?"table":"none";tb.textContent=s?"Hide table":"Show table"};
+draw();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{draw();drawKeys()});
+</script>
+</body>
+</html>

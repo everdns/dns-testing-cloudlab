@@ -30,8 +30,16 @@ ENVS = {
     "d710": {"nic": "eno4", "threads": 8, "fix": "sudo ethtool -L eno4 rx 1 tx 1", "capped": False},
     "rs620": {"nic": "enp4s0f0np0", "threads": 40, "fix": "sudo ethtool -X enp4s0f0np0 equal 1", "capped": True},
 }
-CAP_NOTE = ("Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by "
-            "the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.")
+CAP_NOTE = {
+    1: ("Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by "
+        "the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded."),
+    2: ("Lower bound. Two load generators were used, but some higher-rate levels still delivered under 99% of the "
+        "requested queries, so the load generators may still limit the score. Those measurements are excluded."),
+}
+
+
+OPEN_NOTE = ("These are the agent's literal commands. They can include node-specific paths, helper services "
+             "(samplers, zone-file restore) and a reboot, so read them before running them on another machine.")
 
 
 def num(v):
@@ -53,9 +61,9 @@ def is_valid(r):
     return r.get("status") == "ok" and num(r.get("max_qps_passed")) is not None and (fid is None or fid >= 99)
 
 
-def setup_steps(env, script):
+def setup_steps(env, script, clients):
     e = ENVS[env]
-    return [
+    steps = [
         {"title": "Launch the CloudLab experiment (1 name server + 2 load generators)", "commands": [
             f"python3 cloudlab_api/launch.py launch --name dns-{env} --num-testers 2 --server-software bind "
             f"--server-hw {env} --tester-hw {env}",
@@ -75,6 +83,16 @@ def setup_steps(env, script):
         {"title": "Run the search (from test_host_0)", "commands": [
             f"cd /local/repository/optimization && python3 {script}"]},
     ]
+    if clients > 1:
+        extra = [
+            "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 "
+            "'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+            "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"]
+        if env == "rs620":
+            extra.insert(0, "ssh 10.10.1.3 'sudo ip link set dev enp65s0f0np0 down && sudo ip link set dev enp65s0f0np0 "
+                            "name enp4s0f0np0 && sudo ip link set dev enp4s0f0np0 up'   # same NIC name on both clients")
+        steps.insert(-1, {"title": "Use the second load generator too (test_host_1, 10.10.1.3)", "commands": extra})
+    return steps
 
 
 def params_optimize(row):
@@ -92,13 +110,13 @@ def params_optimize(row):
 
 def open_optimize(row):
     statements = as_list(row.get("named_options"))
-    config = {"tuning": row.get("label", "")}
+    config = {}
     for s in statements:
         parts = s.rstrip(";").split(None, 1)
         if len(parts) == 2:
             config[parts[0]] = int(parts[1]) if parts[1].isdigit() else parts[1]
     host = as_list(row.get("host_commands"))
-    config["host commands"] = len(host)
+    config["root commands"] = len(host)
     if row.get("reboot_after_apply"):
         config["reboot"] = True
     steps = [
@@ -110,12 +128,24 @@ def open_optimize(row):
     return config, [s for s in steps if s["commands"]]
 
 
+def change_list(key, row, config):
+    """Every change the winning measurement applied, one entry per change."""
+    if key != "3_agent_open":
+        return [f"{k} = {v}" for k, v in config.items()]
+    out = [f"named.conf.options: {x}" for x in as_list(row.get("named_options"))]
+    out += [f"root: {c}" for c in as_list(row.get("host_commands"))]
+    if row.get("reboot_after_apply"):
+        out.append("reboot the name server")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=os.path.join(HERE, "data"))
     ap.add_argument("--run-label", default="run1", help="suffix for entry ids")
     ap.add_argument("--clients", type=int, default=1, help="load generators used")
     ap.add_argument("--date", default="2026-10-09")
+    ap.add_argument("--keep", action="store_true", help="do not rebuild results.js")
     args = ap.parse_args()
 
     for env, e in ENVS.items():
@@ -128,18 +158,20 @@ def main():
                 continue
             best = max(valid, key=lambda r: num(r["max_qps_passed"]))
             config, optimize = (open_optimize if key == "3_agent_open" else params_optimize)(best)
-            config = {"search": label, **config}
+            config = {"search": label, "load generators": args.clients, **config}
             entry = {
                 "id": f"bind-{env}-{key}-{args.run_label}",
                 "software": "bind", "version": "",
                 "hardware": {"name": env},
                 "config": config,
                 "metrics": {"max_qps": int(num(best["max_qps_passed"])), "lower_bound": e["capped"]},
-                "setup": setup_steps(env, script), "optimize": optimize,
+                "setup": setup_steps(env, script, args.clients), "optimize": optimize,
                 "measured_with": {"load generators": args.clients, "tool": "kxdpgun (generic mode)",
                                   "per level": "5 trials x 30 s",
                                   "measurements in search": len(rows)},
-                "notes": CAP_NOTE if e["capped"] else "",
+                "changes": change_list(key, best, config),
+                "notes": " ".join(filter(None, [CAP_NOTE[min(args.clients, 2)] if e["capped"] else "",
+                                         OPEN_NOTE if key == "3_agent_open" else ""])),
                 "date": args.date,
             }
             with open(os.path.join(HERE, "entries", entry["id"] + ".json"), "w") as f:

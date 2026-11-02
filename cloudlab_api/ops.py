@@ -66,7 +66,7 @@ def describe(client, experiment_id):
     result = {"experiment": exp, "status": experiment_status(exp), "nodes": []}
     try:
         for n in parse_nodes(client.manifests(experiment_id)):
-            result["nodes"].append({**n, "ssh": ssh_command(n)})
+            result["nodes"].append({**n, "ssh": ssh_command(n, exp.get("creator") if isinstance(exp, dict) else None)})
     except CloudLabError:
         pass  # manifest is absent until the experiment is provisioned
     return result

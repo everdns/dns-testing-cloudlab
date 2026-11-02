@@ -1,0 +1,104 @@
+{
+ "id": "bind-r320-2_coordinate_descent-run2",
+ "software": "bind",
+ "version": "",
+ "hardware": {
+  "name": "r320"
+ },
+ "config": {
+  "search": "coordinate descent",
+  "load generators": 2,
+  "udp-receive-buffer": 4194304,
+  "udp-send-buffer": 16777216,
+  "max-udp-size": 1232
+ },
+ "metrics": {
+  "max_qps": 310000,
+  "lower_bound": false
+ },
+ "setup": [
+  {
+   "title": "Launch the CloudLab experiment (1 name server + 2 load generators)",
+   "commands": [
+    "python3 cloudlab_api/launch.py launch --name dns-r320 --num-testers 2 --server-software bind --server-hw r320 --tester-hw r320",
+    "python3 cloudlab_api/launch.py wait <experiment_id>",
+    "python3 cloudlab_api/launch.py status <experiment_id>   # node ssh commands"
+   ]
+  },
+  {
+   "title": "On test_host_0: create an SSH key and authorize it on every node",
+   "commands": [
+    "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N \"\" -q",
+    "cat ~/.ssh/id_ed25519.pub   # append this line to ~/.ssh/authorized_keys on NS_Local and test_host_1"
+   ]
+  },
+  {
+   "title": "On test_host_0: generate the zone and load it on the name server",
+   "commands": [
+    "cd /local/repository/optimization && bash optimization_setup.sh"
+   ]
+  },
+  {
+   "title": "On every load generator: receive replies on one RX queue (kxdpgun in generic mode reads queue 0 only)",
+   "commands": [
+    "sudo ethtool -L enp8s0d1 rx 1 tx 1"
+   ]
+  },
+  {
+   "title": "Point the search config at this machine",
+   "commands": [
+    "client_interface: enp8s0d1   # in agent_search.yaml / grid_search.yaml",
+    "threads: 16",
+    "max_sustainable_qps: {num_trials: 5, min_passes: 4, trial_duration: 30}"
+   ]
+  },
+  {
+   "title": "Use the second load generator too (test_host_1, 10.10.1.3)",
+   "commands": [
+    "scp /local/repository/dnsperf_input 10.10.1.3:/tmp/ && ssh 10.10.1.3 'sudo install -m 644 /tmp/dnsperf_input /local/repository/dnsperf_input'",
+    "hosts.clients: [10.10.1.2, 10.10.1.3]   # in agent_search.yaml and grid_search.yaml"
+   ]
+  },
+  {
+   "title": "Run the search (from test_host_0)",
+   "commands": [
+    "cd /local/repository/optimization && python3 grid_search.py --mode coordinate-descent --max-passes 3"
+   ]
+  }
+ ],
+ "optimize": [
+  {
+   "title": "bind configuration",
+   "commands": [
+    "sudo cp /etc/bind/named.conf.options /etc/bind/named.conf.options.orig",
+    "sudo sed -i -E '/^\\s*(udp-receive-buffer|udp-send-buffer|max-udp-size)\\s/d' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-receive-buffer 4194304;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    udp-send-buffer 16777216;\\n};/' /etc/bind/named.conf.options",
+    "sudo sed -i '0,/^};/s//    max-udp-size 1232;\\n};/' /etc/bind/named.conf.options",
+    "sudo named-checkconf /etc/bind/named.conf"
+   ]
+  },
+  {
+   "title": "Restart the DNS service",
+   "commands": [
+    "sudo /local/repository/stop_dns_service.sh ns_bind",
+    "sudo /local/repository/start_dns_service.sh ns_bind"
+   ]
+  }
+ ],
+ "measured_with": {
+  "load generators": 2,
+  "tool": "kxdpgun (generic mode)",
+  "per level": "5 trials x 30 s",
+  "measurements in search": 18
+ },
+ "changes": [
+  "search = coordinate descent",
+  "load generators = 2",
+  "udp-receive-buffer = 4194304",
+  "udp-send-buffer = 16777216",
+  "max-udp-size = 1232"
+ ],
+ "notes": "",
+ "date": "2026-10-12"
+}

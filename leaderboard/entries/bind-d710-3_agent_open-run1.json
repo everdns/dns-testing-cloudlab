@@ -7,9 +7,9 @@
  },
  "config": {
   "search": "agent open",
-  "tuning": "full-tuning-mitigations-off",
+  "load generators": 1,
   "udp-receive-buffer": 16777216,
-  "host commands": 11,
+  "root commands": 11,
   "reboot": true
  },
  "metrics": {
@@ -98,6 +98,21 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 17
  },
- "notes": "",
+ "changes": [
+  "named.conf.options: udp-receive-buffer 16777216;",
+  "root: tar xzf /var/tmp/agent_baseline.tgz -C / etc/bind/db.workbench.lan etc/bind/db.dns64perf.test etc/bind/named.conf.local",
+  "root: test $(wc -l < /etc/bind/db.workbench.lan) -gt 60000",
+  "root: sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=\"\"/GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off\"/' /etc/default/grub",
+  "root: grep -q 'GRUB_CMDLINE_LINUX_DEFAULT=\"mitigations=off\"' /etc/default/grub",
+  "root: update-grub",
+  "root: rm -rf /var/local/bindbak && cp -a /etc/bind /var/local/bindbak",
+  "root: cat > /etc/systemd/system/dnswait.sh <<'EOF'\n#!/bin/bash\nexec >/var/tmp/dnswait.log 2>&1\nset -x\nboot=$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))\nfor i in $(seq 1 90); do\n  s=$(stat -c %Y /var/tmp/startup-5.status 2>/dev/null || echo 0)\n  [ \"$s\" -gt \"$boot\" ] && break\n  sleep 5\ndone\nsleep 5\ncp -a /var/local/bindbak/. /etc/bind/\nethtool -G eno4 rx 2040; sleep 5\nfor q in /sys/class/net/eno4/queues/rx-*; do echo ff > $q/rps_cpus; done\nsysctl -w net.core.netdev_max_backlog=30000 net.core.rmem_max=16777216 net.core.rmem_default=16777216\nethtool -C eno4 rx-usecs 200 rx-frames 128 rx-usecs-irq 200 rx-frames-irq 128\nethtool -K eno4 gro off\nfor i in 0 1 2 3 4 5 6 7; do printf '%x' $((1<<i)) > /sys/class/net/eno4/queues/tx-$i/xps_cpus; done\nsysctl -w net.core.default_qdisc=pfifo_fast\ntc qdisc replace dev eno4 root handle 1: mq\nsysctl -w net.ipv4.conf.all.rp_filter=0 net.ipv4.conf.eno4.rp_filter=0 net.ipv4.conf.default.rp_filter=0\necho always > /sys/kernel/mm/transparent_hugepage/enabled\ntc qdisc show dev eno4; ethtool -c eno4; cat /proc/cmdline; wc -l /etc/bind/db.workbench.lan\nexit 0\nEOF",
+  "root: chmod 755 /etc/systemd/system/dnswait.sh",
+  "root: mkdir -p /etc/systemd/system/ssh.service.d",
+  "root: printf '[Service]\\nExecStartPre=-/etc/systemd/system/dnswait.sh\\nTimeoutStartSec=900\\n' > /etc/systemd/system/ssh.service.d/zz-wait.conf",
+  "root: systemctl daemon-reload",
+  "reboot the name server"
+ ],
+ "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
  "date": "2026-10-09"
 }

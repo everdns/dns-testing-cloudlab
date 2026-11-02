@@ -1,0 +1,23 @@
+{
+  "recommended_point_id": "udp-receive-buffer=67108864__udp-send-buffer=4194304__max-udp-size=1232__udp-conntrack=default__rmem=268435456__netdev-max-backlog=default__netdev-budget=default__udp-mem=default__optmem-max=default__named-nofile=default",
+  "recommended_configuration": {
+    "udp-receive-buffer": 67108864,
+    "udp-send-buffer": 4194304,
+    "max-udp-size": 1232,
+    "udp-conntrack": "default",
+    "rmem": 268435456,
+    "netdev-max-backlog": "default",
+    "netdev-budget": "default",
+    "udp-mem": "default",
+    "optmem-max": "default",
+    "named-nofile": "default"
+  },
+  "recommended_max_qps_passed": 690000,
+  "summary": "RECOMMENDATION: udp-receive-buffer=64MB (the parameter's maximum), rmem_max/rmem_default=256MB. Everything else stays at its starting value (udp-send-buffer 4MB, max-udp-size 1232, ufw/conntrack default, backlog, NAPI budget, udp_mem, optmem and nofile at defaults).\nMax sustainable QPS: 690k, 750k and 690k over 3 runs (mean ~710k). The baseline was 490k, so this is about +45%.\n\nCONFIDENCE: High that this is the right direction and close to the best this search space can reach. Run-to-run noise for one config is about \u00b130-40k. Single 30s trials near the knee swing from ~95% to ~99.8% answer rate.\n- The 64MB buffer clearly beats 16MB/64MB-rmem (650k and 580k, mean ~615k) and the 208KB-capped baseline (490k).\n- Every other knob was indistinguishable from noise:\n  - notrack: 680k\n  - NAPI budget 3000/16000: 690k\n  - ufw-off at 16MB: 600k\n  - \"kitchen sink\" (ufw-off, backlog 30000, budget 3000/16000, udp-mem raised, optmem 64K, nofile 1M, send buffer 16MB): 730k, 720k, 670k (mean ~707k), the same as the minimal config.\n- I recommend the minimal config because it gets the same result with fewer changes and keeps the firewall on.\n\nWHAT LIMITS THIS SERVER: In every run, all packet loss was UdpRcvbufErrors, meaning named's sockets overflowed.\n- softnet_stat never showed a backlog drop or time_squeeze.\n- There were no NIC rx drops, UdpSndbufErrors or UdpMemErrors.\n- RX softirq runs on the 16 NUMA-node-0 logical CPUs. Responses are tiny (~95 bytes).\nSo the kernel delivers everything, and the limit is how fast named's worker threads drain their sockets (CPU in BIND). Deeper receive buffers help because they absorb transient named stalls and bursts. That is why the 208KB \u2192 16MB \u2192 64MB steps each helped, and why above ~700k the overload is sustained and no buffer can hide it. Conntrack/ufw, NAPI budget, netdev backlog, udp_mem, optmem, nofile and EDNS size have no measurable effect. Note that udp-send-buffer is capped by wmem_max (208KB, never raised), so 4MB vs 16MB is a no-op anyway.\n\nNEXT STEPS (outside this search space): Raise named's CPU efficiency or parallelism. Options:\n- Tune named's -n thread count, or pin threads and IRQs so named workers don't share cores with RX softirq on node 0.\n- Spread RSS over both NUMA nodes and enlarge NIC rings (currently 1024/4096).\n- Try SO_REUSEPORT/thread-count tuning, disable unneeded logging/statistics, or consider a faster authoritative server (Knot/NSD) if more than ~750k QPS is needed. More repeats would shrink the \u00b135k uncertainty, but they would not change the ranking.",
+  "measurements_used": 12,
+  "measurements_remaining": 8,
+  "best_so_far": {
+    "point_id": "udp-receive-buffer=67108864__udp-send-buffer=4194304__max-udp-size=1232__udp-conntrack=default__rmem=268435456__netdev-max-backlog=default__netdev-budget=default__udp-mem=default__optmem-max=default__named-nofile=default__rep2",
+    "max_qps_passed": 750000
+  }
+}

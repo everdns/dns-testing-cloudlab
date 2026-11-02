@@ -7,6 +7,7 @@
  },
  "config": {
   "search": "coordinate descent",
+  "load generators": 1,
   "udp-receive-buffer": 16777216,
   "udp-send-buffer": 4194304,
   "max-udp-size": 1232,
@@ -98,6 +99,16 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 42
  },
+ "changes": [
+  "search = coordinate descent",
+  "load generators = 1",
+  "udp-receive-buffer = 16777216",
+  "udp-send-buffer = 4194304",
+  "max-udp-size = 1232",
+  "udp-conntrack = conntrack-raised",
+  "rmem = 16777216",
+  "netdev-max-backlog = 5000"
+ ],
  "notes": "Lower bound. One load generator can send about 700k-780k QPS here, so the score is limited by the load generator, not necessarily by the name server. Measurements below 99% query fidelity are excluded.",
  "date": "2026-10-09"
 }

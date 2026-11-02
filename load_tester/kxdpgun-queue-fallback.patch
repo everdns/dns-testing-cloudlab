@@ -1,0 +1,79 @@
+--- a/src/libknot/xdp/eth.c
++++ b/src/libknot/xdp/eth.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <assert.h>
++#include <dirent.h>
+ #include <bpf/libbpf.h>
+ #include <errno.h>
+ #include <ifaddrs.h>
+@@ -12,6 +13,7 @@
+ #include <linux/if_vlan.h>
+ #include <linux/sockios.h>
+ #include <net/if.h>
++#include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/ioctl.h>
+@@ -24,6 +26,32 @@
+ #include "libknot/errcode.h"
+ #include "libknot/xdp/eth.h"
+ 
++/*
++ * Drivers such as sfc, mlx4 and bnx2 report no "combined" channels (or no
++ * ethtool channel support at all), so knot_eth_queues() falls back to 1 and
++ * kxdpgun runs a single thread on queue 0. Use one thread per CPU instead,
++ * limited to the RX queues the kernel exposes in sysfs, because thread N binds
++ * to queue N and fails to start without one.
++ */
++static int sysfs_rx_queues(const char *devname)
++{
++	char path[256];
++	snprintf(path, sizeof(path), "/sys/class/net/%s/queues", devname);
++	DIR *dir = opendir(path);
++	if (dir == NULL) {
++		return 0;
++	}
++	int count = 0;
++	struct dirent *ent;
++	while ((ent = readdir(dir)) != NULL) {
++		if (strncmp(ent->d_name, "rx-", 3) == 0) {
++			count++;
++		}
++	}
++	closedir(dir);
++	return count;
++}
++
+ _public_
+ int knot_eth_queues(const char *devname)
+ {
+@@ -31,6 +59,12 @@
+ 		return KNOT_EINVAL;
+ 	}
+ 
++	/* KXDPGUN_QUEUES=<n> overrides the detected queue (thread) count. */
++	const char *env = getenv("KXDPGUN_QUEUES");
++	if (env != NULL && atoi(env) > 0) {
++		return atoi(env);
++	}
++
+ 	int fd = socket(AF_INET, SOCK_DGRAM, 0);
+ 	if (fd < 0) {
+ 		return knot_map_errno();
+@@ -60,6 +94,14 @@
+ 	}
+ 
+ 	close(fd);
++	if (ret == 1) {
++		/* One thread per CPU (like nproc), but each thread needs its own queue. */
++		int rx = sysfs_rx_queues(devname);
++		long cpus = sysconf(_SC_NPROCESSORS_ONLN);
++		if (rx > 1 && cpus > 1) {
++			ret = cpus < rx ? (int)cpus : rx;
++		}
++	}
+ 	return ret;
+ }
+ 

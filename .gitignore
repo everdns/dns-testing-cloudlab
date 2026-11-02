@@ -1,3 +1,6 @@
 __pycache__
 dnsperf_input
 results/
+cloudlab_token
+.cloudlab_token
+.claude*

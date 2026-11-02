@@ -7,10 +7,10 @@
  },
  "config": {
   "search": "agent open",
-  "tuning": "rx256-pin-noirqbal-nocollectl-thp",
+  "load generators": 1,
   "udp-receive-buffer": 16777216,
   "udp-send-buffer": 16777216,
-  "host commands": 7
+  "root commands": 7
  },
  "metrics": {
   "max_qps": 420000,
@@ -89,6 +89,17 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 20
  },
- "notes": "",
+ "changes": [
+  "named.conf.options: udp-receive-buffer 16777216;",
+  "named.conf.options: udp-send-buffer 16777216;",
+  "root: systemctl stop irqbalance",
+  "root: systemctl stop collectl || true",
+  "root: echo always > /sys/kernel/mm/transparent_hugepage/enabled",
+  "root: ethtool -C enp8s0d1 adaptive-rx off rx-usecs 256 rx-frames 512 tx-usecs 64 tx-frames 64",
+  "root: ethtool -K enp8s0d1 gro off",
+  "root: sysctl -w net.core.rmem_max=16777216 net.core.rmem_default=16777216 net.core.wmem_max=16777216 net.core.wmem_default=16777216",
+  "root: c=0; for i in $(grep -E 'mlx4-(1[7-9]|2[0-9]|3[0-2])@' /proc/interrupts | awk -F: '{print $1}'); do echo $c > /proc/irq/$i/smp_affinity_list; c=$((c+1)); done"
+ ],
+ "notes": "These are the agent's literal commands. They can include node-specific paths, helper services (samplers, zone-file restore) and a reboot, so read them before running them on another machine.",
  "date": "2026-10-09"
 }

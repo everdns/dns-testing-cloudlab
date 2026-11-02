@@ -7,6 +7,7 @@
  },
  "config": {
   "search": "agent bounded",
+  "load generators": 1,
   "udp-receive-buffer": 16777216,
   "udp-send-buffer": 4194304,
   "max-udp-size": 1232,
@@ -92,6 +93,14 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 11
  },
+ "changes": [
+  "search = agent bounded",
+  "load generators = 1",
+  "udp-receive-buffer = 16777216",
+  "udp-send-buffer = 4194304",
+  "max-udp-size = 1232",
+  "rmem = 16777216"
+ ],
  "notes": "",
  "date": "2026-10-09"
 }

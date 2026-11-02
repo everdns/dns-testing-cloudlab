@@ -1,0 +1,23 @@
+{
+  "recommended_point_id": "udp-receive-buffer=16777216__udp-send-buffer=16777216__max-udp-size=1232__udp-conntrack=default__rmem=67108864__netdev-max-backlog=default__netdev-budget=default__udp-mem=default__optmem-max=default__named-nofile=default",
+  "recommended_configuration": {
+    "udp-receive-buffer": 16777216,
+    "udp-send-buffer": 16777216,
+    "max-udp-size": 1232,
+    "udp-conntrack": "default",
+    "rmem": 67108864,
+    "netdev-max-backlog": "default",
+    "netdev-budget": "default",
+    "udp-mem": "default",
+    "optmem-max": "default",
+    "named-nofile": "default"
+  },
+  "recommended_max_qps_passed": 180000,
+  "summary": "RECOMMENDATION: rmem_max/rmem_default = 64 MB (67108864), BIND udp-receive-buffer = 16 MB and udp-send-buffer = 16 MB; everything else at the starting value (max-udp-size 1232, ufw default, stock backlog/budget/udp_mem/optmem/nofile). Max sustainable QPS = 180,000, measured twice (180k both times). The starting configuration scored 170,000, also measured twice. That is a reproducible gain of about 6%. At 180k and 200k the baseline answered noticeably less (97.2-98.5% and 93.9-94.6%) than the tuned config (99.6-99.8% and 96.5-98.0%).\n\nCONFIDENCE: High that this is the practical ceiling for the tunables in this search space. Six measurements of five different buffer-raised configs all scored exactly 180k, and every one failed at 190k (average answer rates 97.3-99.4%). The true knee is about 185k, and the 10k search step can't resolve it. The other 180k configs (64 MB rcvbuf; ufw-off; NAPI 600/4000; 64 MB + ufw-off + 600/4000) are equivalent within noise. I recommend the simplest one with a confirmed repeat.\n\nWHAT LIMITS THE SERVER (from counters compared before and after runs):\n- Every lost query was a UdpRcvbufErrors drop on named's sockets. There were zero softnet backlog drops, zero time_squeeze, zero NIC rx drops/missed, zero UdpMemErrors and zero SndbufErrors, and IpInReceives matched NIC RX exactly. Netfilter/conntrack was dropping nothing.\n- Raising rmem_max so BIND's buffer request takes effect roughly halved the rcvbuf drops (903k to 419k per run) and gave +10k QPS. Going from 16 MB to 64 MB gave nothing more, so the remaining drops come from sustained overload, not bursts. named's worker threads can't drain the sockets faster than about 185k QPS on this 4-core/8-thread 2.4 GHz Xeon E5530 (2009-era).\n- RX softirq lands on only 2 of 8 CPUs (two eno4 queues: CPU1 plus CPU5 or CPU4, depending on irqbalance). Those CPUs also host named workers, while SO_REUSEPORT spreads queries evenly over all named threads. The threads sharing a CPU with softirq fall behind first.\n- No effect: ufw-off (180k), NAPI budget 600/4000 (180k). Packets are tiny (about 75 B in, about 93 B out), so max-udp-size/EDNS size can't matter. A kitchen-sink run (notrack, backlog 30000, budget 3000/16000, udp-mem raised, optmem 64K, nofile 1M) scored 170k. A big NAPI budget may slightly hurt by letting softirq starve the colocated named threads, but that is a single run.\n\nNEXT STEPS (outside this search space): spread RX across all CPUs or pin it away from named (IRQ affinity/RSS indirection, more distinct client flows, or RPS, which would make netdev_max_backlog relevant), pin named threads (-n / CPU affinity) away from the softirq CPUs, and check BIND worker count. CPU efficiency, not kernel buffering, is the bottleneck. 9 of 20 measurements used; the remaining knobs have no mechanism tied to the observed drop point, so I stopped.",
+  "measurements_used": 9,
+  "measurements_remaining": 11,
+  "best_so_far": {
+    "point_id": "udp-receive-buffer=16777216__udp-send-buffer=16777216__max-udp-size=1232__udp-conntrack=default__rmem=67108864__netdev-max-backlog=default__netdev-budget=default__udp-mem=default__optmem-max=default__named-nofile=default",
+    "max_qps_passed": 180000
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "recommended_point_id": "udp-receive-buffer=16777216__udp-send-buffer=4194304__max-udp-size=1232__udp-conntrack=default__rmem=16777216__netdev-max-backlog=default__netdev-budget=default__udp-mem=default__optmem-max=default__named-nofile=default",
+  "recommended_configuration": {
+    "udp-receive-buffer": 16777216,
+    "udp-send-buffer": 4194304,
+    "max-udp-size": 1232,
+    "udp-conntrack": "default",
+    "rmem": 16777216,
+    "netdev-max-backlog": "default",
+    "netdev-budget": "default",
+    "udp-mem": "default",
+    "optmem-max": "default",
+    "named-nofile": "default"
+  },
+  "recommended_max_qps_passed": 320000,
+  "summary": "RECOMMENDATION: rmem_max/rmem_default = 16 MB with BIND udp-receive-buffer = 16 MB; everything else at the starting values (udp-send-buffer 4 MB, max-udp-size 1232, ufw/conntrack default, stock netdev settings, udp-mem default, optmem default, nofile default). Measured three times: 320k, 310k, 310k (mean about 313k qps). The starting configuration scored 310k.\n\nHOW SURE: I'm confident it reliably sustains about 310k qps and is at least as good as anything else measured. I'm not confident it is meaningfully better than the baseline. The score steps in 10k increments and run-to-run noise is about \u00b110k (the same config gave 320k, then 310k twice). The only consistent benefit of the larger buffer is near the knee: the baseline answered 99.55% at 300k, while every config with a 16 MB+ buffer answered 99.9-100%. So it absorbs bursts, but it does not raise the saturation point.\n\nWHAT LIMITS THE SERVER: named's own processing rate, about 300-315k answered qps on this 16-thread, 2.1 GHz Sandy Bridge Xeon E5-2450. Evidence:\n(1) Before vs after counters: every lost query was a UdpRcvbufErrors drop (about 9.8M in the baseline run). There were zero softnet backlog drops, essentially no time_squeeze, no NIC rx drops/misses, no UdpMemErrors and no SndbufErrors. The 16 RSS queues were spread evenly, one per CPU.\n(2) Drops continued at the same rate with 16 MB and 64 MB buffers. The socket fills because named cannot drain it, not because the buffer is small.\n(3) Answered throughput at the overloaded levels (350k and 400k offered) was flat at about 290-315k across nearly every config. That pattern is a hard processing ceiling, not burst loss.\n\nWHAT DIDN'T HELP (all within noise, about 300-310k answered capacity): 64 MB buffers, ufw-off, conntrack-raised, netdev-budget 3000/16000, and together backlog 5000 + udp-mem raised + optmem 64K + nofile 1M + 16 MB send buffer. Conntrack/netfilter cost is negligible with ufw's established-state fast path, since only about 1024 client flows exist.\n\nWHAT HURTS: udp-conntrack=notrack with ufw still on. It cost about 4-5% capacity, reproduced twice: once alone (300k, about 278-291k answered) and once in a combined config (300k). Untracked packets miss ufw's ESTABLISHED/RELATED fast-accept and walk the full ufw rule chains on every packet. Avoid it, or pair NOTRACK with removing ufw.\n\nNOT TESTED: max-udp-size. Average response size was about 108 bytes on the wire (from NIC byte counters), well under 1232, so it should be irrelevant. I stopped with 9 measurements left because none of the remaining parameters touch the actual bottleneck, and noise (\u00b110k) is as large as any remaining expected effect.\n\nWHAT TO TRY NEXT (outside this search space): BIND-side throughput. That means explicit worker/listener counts (-n), reuseport behaviour and rate-limit settings, plus pinning NIC IRQs to some cores and named to the others to reduce softirq/userspace contention. Also check minimal-responses/zone settings, or use a faster CPU. Kernel network sysctls are not the limiter on this host.",
+  "measurements_used": 11,
+  "measurements_remaining": 9,
+  "best_so_far": {
+    "point_id": "udp-receive-buffer=16777216__udp-send-buffer=4194304__max-udp-size=1232__udp-conntrack=default__rmem=16777216__netdev-max-backlog=default__netdev-budget=default__udp-mem=default__optmem-max=default__named-nofile=default",
+    "max_qps_passed": 320000
+  }
+}

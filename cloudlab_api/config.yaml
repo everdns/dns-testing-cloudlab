@@ -12,7 +12,7 @@ profile_project: ""        # project that owns the profile; defaults to `project
 refspec: refs/heads/fully_agentic
 
 duration: 4                # hours
-max_duration: 24           # hours; launch/extend refuse to go beyond this in one call
+max_duration: 168         # hours; launch/extend refuse to go beyond this in one call
 
 # Defaults for the profile parameters in profile.py.
 parameters:

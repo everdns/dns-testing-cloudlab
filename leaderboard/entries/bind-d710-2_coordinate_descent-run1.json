@@ -7,6 +7,7 @@
  },
  "config": {
   "search": "coordinate descent",
+  "load generators": 1,
   "udp-receive-buffer": 4194304,
   "udp-send-buffer": 4194304,
   "max-udp-size": 1232
@@ -84,6 +85,13 @@
   "per level": "5 trials x 30 s",
   "measurements in search": 17
  },
+ "changes": [
+  "search = coordinate descent",
+  "load generators = 1",
+  "udp-receive-buffer = 4194304",
+  "udp-send-buffer = 4194304",
+  "max-udp-size = 1232"
+ ],
  "notes": "",
  "date": "2026-10-09"
 }

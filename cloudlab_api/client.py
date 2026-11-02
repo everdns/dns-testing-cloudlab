@@ -6,7 +6,9 @@ never logged.
 """
 import json
 import os
+import ssl
 import stat
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -80,8 +82,7 @@ class PortalClient:
             "X-Api-Token": self.token, "Accept": "application/json",
             **({"Content-Type": "application/json"} if data is not None else {})})
         try:
-            with _opener.open(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode()
+            raw = self._open_with_tls_retry(req)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:1000]
             if e.headers.get("Location"):
@@ -97,6 +98,19 @@ class PortalClient:
             return json.loads(raw)
         except json.JSONDecodeError:
             return raw
+
+    def _open_with_tls_retry(self, req, attempts=6, delay=2):
+        """boss.emulab.net intermittently fails certificate verification ("certificate has
+        expired") on a minority of connections. The handshake fails before any request is sent,
+        so retrying is safe for every method. Verification stays on; only that error is retried."""
+        for attempt in range(1, attempts + 1):
+            try:
+                with _opener.open(req, timeout=self.timeout) as resp:
+                    return resp.read().decode()
+            except urllib.error.URLError as e:
+                if not isinstance(e.reason, ssl.SSLCertVerificationError) or attempt == attempts:
+                    raise
+                time.sleep(delay)
 
     # --- endpoints -------------------------------------------------------
     def version(self):
@@ -159,7 +173,7 @@ def parse_nodes(manifests):
             if _strip(node.tag) != "node":
                 continue
             info = {"client_id": node.get("client_id"), "hostname": None, "hardware_type": None,
-                    "ssh_user": None, "ssh_port": 22, "ips": []}
+                    "ssh_user": None, "ssh_users": [], "ssh_port": 22, "ips": []}
             for child in node.iter():
                 tag = _strip(child.tag)
                 if tag == "host" and child.get("name") and not info["hostname"]:
@@ -168,7 +182,9 @@ def parse_nodes(manifests):
                     info["hardware_type"] = child.get("name")
                 elif tag == "login" and child.get("authentication") == "ssh-keys":
                     info["hostname"] = child.get("hostname") or info["hostname"]
-                    info["ssh_user"] = child.get("username")
+                    # a login is listed for every project member
+                    info["ssh_users"].append(child.get("username"))
+                    info["ssh_user"] = info["ssh_user"] or child.get("username")
                     info["ssh_port"] = int(child.get("port") or 22)
                 elif tag == "ip" and child.get("address"):
                     info["ips"].append(child.get("address"))
@@ -176,9 +192,10 @@ def parse_nodes(manifests):
     return nodes
 
 
-def ssh_command(node):
+def ssh_command(node, prefer_user=None):
     if not node.get("hostname"):
         return None
-    user = f"{node['ssh_user']}@" if node.get("ssh_user") else ""
+    chosen = prefer_user if prefer_user in node.get("ssh_users", []) else node.get("ssh_user")
+    user = f"{chosen}@" if chosen else ""
     port = f" -p {node['ssh_port']}" if node.get("ssh_port", 22) != 22 else ""
     return f"ssh{port} {user}{node['hostname']}"

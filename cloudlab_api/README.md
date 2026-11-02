@@ -59,3 +59,14 @@ Read-only calls (status, list, wait, profiles) are pre-allowed in `.claude/setti
 ```bash
 python3 -m unittest discover -s cloudlab_api
 ```
+
+## Letting test_host_0 ssh to the other nodes
+
+```bash
+python3 setup_ssh_keys.py <experiment_id> [<experiment_id> ...] [--identity ~/.ssh/key] [--dry-run]
+```
+
+Creates an ed25519 key on `test_host_0` (reusing one if present), adds its public key to `~/.ssh/authorized_keys`
+on every node of the experiment, records the nodes' internal addresses in `test_host_0`'s `known_hosts`, and checks
+that `test_host_0` can ssh to each other node without a prompt. Safe to re-run. The machine you run it from must
+already be able to ssh to the nodes (a key registered on your CloudLab account), because it works over ssh.

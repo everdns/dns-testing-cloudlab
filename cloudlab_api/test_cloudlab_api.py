@@ -22,7 +22,8 @@ MANIFEST = """<rspec xmlns="http://www.geni.net/resources/rspec/3">
  <node client_id="NS_Local">
   <hardware_type name="c6525-25g"/>
   <host name="NS_Local.exp.proj.cloudlab.us"/>
-  <services><login authentication="ssh-keys" hostname="c1.cloudlab.us" port="22" username="alice"/></services>
+  <services><login authentication="ssh-keys" hostname="c1.cloudlab.us" port="22" username="bob"/>
+  <login authentication="ssh-keys" hostname="c1.cloudlab.us" port="22" username="alice"/></services>
  </node>
  <node client_id="test_host_0">
   <services><login authentication="ssh-keys" hostname="c2.cloudlab.us" port="2222" username="alice"/></services>
@@ -56,7 +57,8 @@ class Manifest(unittest.TestCase):
         nodes = client.parse_nodes({"manifests": [{"xml": MANIFEST}]})
         self.assertEqual([n["client_id"] for n in nodes], ["NS_Local", "test_host_0"])
         self.assertEqual(nodes[0]["hardware_type"], "c6525-25g")
-        self.assertEqual(client.ssh_command(nodes[0]), "ssh alice@c1.cloudlab.us")
+        self.assertEqual(client.ssh_command(nodes[0], "alice"), "ssh alice@c1.cloudlab.us")
+        self.assertEqual(client.ssh_command(nodes[0], "nobody"), "ssh bob@c1.cloudlab.us")
         self.assertEqual(client.ssh_command(nodes[1]), "ssh -p 2222 alice@c2.cloudlab.us")
 
 
@@ -162,6 +164,63 @@ class McpProtocol(unittest.TestCase):
         text = json.loads(replies[3]["result"]["content"][0]["text"])
         self.assertTrue(text["dry_run"])
         self.assertFalse(replies[3]["result"]["isError"])
+
+
+class SetupSshKeys(unittest.TestCase):
+    PUB = "ssh-ed25519 AAAAC3Nza test_host_0@h0"
+
+    def _client(self):
+        c = mock.Mock()
+        c.get_experiment.return_value = {"name": "e", "status": "ready", "creator": "alice"}
+        c.manifests.return_value = {"m": MANIFEST.replace('client_id="NS_Local"', 'client_id="NS_Local"')
+                                    .replace("</rspec>", "")
+                                    + '<node client_id="test_host_1"><host name="h1"/></node></rspec>'}
+        return c
+
+    def test_flow_and_verification(self):
+        import setup_ssh_keys as sk
+        calls = []
+
+        def runner(host, user, script, identity=None):
+            calls.append((host, script))
+            if "ssh-keygen -q" in script:
+                return 0, self.PUB, "created"
+            if "authorized_keys" in script and "grep -qxF" in script:
+                self.assertIn(self.PUB, script)
+                return 0, "added", ""
+            return 0, "\n".join(f"{ip} OK x" for ip in ("10.10.1.1", "10.10.1.2")), ""
+
+        c = self._client()
+        # give nodes internal ips as parse_nodes would from the manifest
+        with mock.patch.object(sk.ops, "describe", return_value={
+                "experiment": {"name": "e", "creator": "alice"}, "status": "ready",
+                "nodes": [{"client_id": "NS_Local", "hostname": "n", "ips": ["10.10.1.1"]},
+                          {"client_id": "test_host_0", "hostname": "t0", "ips": ["10.10.1.2"]},
+                          {"client_id": "test_host_1", "hostname": "t1", "ips": ["10.10.1.3"]}]}):
+            out = []
+            ok = sk.setup(c, "id", runner=runner, out=out.append)
+        self.assertTrue(ok)
+        self.assertEqual(calls[0][0], "t0")                       # key made on test_host_0 first
+        self.assertEqual([h for h, _ in calls[1:4]], ["n", "t0", "t1"])  # then authorized on all nodes
+        self.assertIn("10.10.1.1", calls[-1][1])                    # verification targets exclude test_host_0
+        self.assertNotIn("10.10.1.2 ", calls[-1][1].split("ssh-keyscan")[-1])
+
+    def test_verification_failure_reported(self):
+        import setup_ssh_keys as sk
+        runner = lambda h, u, s, i=None: ((0, self.PUB, "") if "ssh-keygen -q" in s else
+                                          (0, "added", "") if "grep -qxF" in s else (0, "10.10.1.1 FAIL", ""))
+        with mock.patch.object(sk.ops, "describe", return_value={
+                "experiment": {"name": "e", "creator": "a"}, "status": "ready",
+                "nodes": [{"client_id": "NS_Local", "hostname": "n", "ips": ["10.10.1.1"]},
+                          {"client_id": "test_host_0", "hostname": "t0", "ips": ["10.10.1.2"]}]}):
+            self.assertFalse(sk.setup(mock.Mock(), "id", runner=runner, out=lambda *_: None))
+
+    def test_requires_source_node(self):
+        import setup_ssh_keys as sk
+        with mock.patch.object(sk.ops, "describe", return_value={
+                "experiment": {"name": "e"}, "status": "ready", "nodes": [{"client_id": "NS_Local", "hostname": "n", "ips": []}]}):
+            with self.assertRaisesRegex(client.CloudLabError, "no node named test_host_0"):
+                sk.setup(mock.Mock(), "id", runner=None)
 
 
 if __name__ == "__main__":
