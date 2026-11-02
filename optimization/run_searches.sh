@@ -10,7 +10,11 @@
 #   nohup setsid bash run_searches.sh > ~/searches/run.log 2>&1 &
 #
 # Usage: run_searches.sh [OUTPUT_DIR]   (default ~/searches)
-# Environment: MAX_CONFIGS (default 20), AGENT_BACKEND (default claude-code)
+# Environment: MAX_CONFIGS (default 20), AGENT_BACKEND (default claude-code),
+#              ENV_NAME (hardware type recorded in the ledger, default: hostname)
+#
+# Every measurement is validity-checked and appended to OUTPUT_DIR/ledger.jsonl.
+# For continuous runs use campaign/campaign.py instead.
 #
 # A failing search does not stop the next one. Exit code 3 from a search or
 # from the reset means the name server may be in an unknown state, so the run
@@ -21,6 +25,8 @@ cd "$(dirname "$0")" || exit 2
 OUT=${1:-$HOME/searches}
 MAX_CONFIGS=${MAX_CONFIGS:-20}
 BACKEND=${AGENT_BACKEND:-claude-code}
+ENV_NAME=${ENV_NAME:-$(hostname -s)}
+COMMON=(--ledger "$OUT/ledger.jsonl" --env "$ENV_NAME" --validate)
 mkdir -p "$OUT"
 : > "$OUT/DONE"
 
@@ -49,15 +55,15 @@ run_search() {
 
 run_search 1_agent_bounded \
     python3 agent_search.py --mode bounded --agent-backend "$BACKEND" \
-        --max-configs "$MAX_CONFIGS" --output-dir "$OUT/1_agent_bounded"
+        --max-configs "$MAX_CONFIGS" --output-dir "$OUT/1_agent_bounded" "${COMMON[@]}"
 
 run_search 2_coordinate_descent \
     python3 grid_search.py --mode coordinate-descent --max-passes 3 \
-        --output-dir "$OUT/2_coordinate_descent"
+        --output-dir "$OUT/2_coordinate_descent" "${COMMON[@]}"
 
 run_search 3_agent_open \
     python3 agent_search.py --mode open --agent-backend "$BACKEND" \
-        --max-configs "$MAX_CONFIGS" --output-dir "$OUT/3_agent_open"
+        --max-configs "$MAX_CONFIGS" --output-dir "$OUT/3_agent_open" "${COMMON[@]}"
 
 log "ALL DONE"
 echo "finished $(date -u +%FT%TZ)" >> "$OUT/DONE"

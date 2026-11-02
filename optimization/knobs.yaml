@@ -1,0 +1,414 @@
+# Canonical tuning knobs (knobs.py).
+#
+# Every knob is one variable in the cross-hardware analysis. Agents tag each
+# open-mode measurement with the knobs it implements; attribution and factorial
+# phases build configurations from them; the ledger stores {knob: value}.
+#
+#   scope       host (Linux/NIC/CPU; same commands on every server software)
+#               | server (the DNS server's own config; per software)
+#   type        bool | int | pair ("<a>/<b>") | enum
+#   baseline    the value that means "not applied" (the stock host/server)
+#   typical     the value attribution uses when it has no measured value
+#   portable    true if the knob means the same thing on every hardware type,
+#               so its effect can be compared across environments
+#   reboot      the change needs a reboot (kernel command line)
+#   host        shell commands, run as root with bash on the name server
+#   software    per-software server config statements (bind: named.conf.options,
+#               knot: "section.key: value" in knot.conf, nsd: "key: value" in
+#               nsd.conf's server: clause)
+#   host_by_software  like host, but only for the named server software
+#   system_config  delegate rendering to that optimization/system_config.py
+#               parameter (same commands the grid search uses)
+#
+# Placeholders: @value@, @first@/@second@ (pair parts), @iface@ (the server's
+# interface towards the clients), and the shell helper cpumask (defined in
+# prelude) which prints a comma-separated CPU mask for a list of CPU numbers.
+#
+# Add techniques the agents discover here, after reviewing
+# ~/campaign/knobs_proposed.yaml.
+
+prelude: |
+  cpumask() { python3 -c 'import sys
+  m = 0
+  for c in sys.argv[1:]: m |= 1 << int(c)
+  h = "%x" % m; h = h.zfill((len(h) + 7) // 8 * 8)
+  print(",".join(h[i:i + 8] for i in range(0, len(h), 8)))' "$@"; }
+
+# Parameter names of the grid/bounded searches -> knob names, so their rows are
+# tagged too. "default" values map to the knob's baseline value.
+aliases:
+  udp-receive-buffer: udp_rcvbuf
+  udp-send-buffer: udp_sndbuf
+  max-udp-size: max_udp_size
+  udp-conntrack: conntrack
+  rmem: rmem_max
+  netdev-max-backlog: netdev_max_backlog
+  netdev-budget: netdev_budget
+  udp-mem: udp_mem
+  optmem-max: optmem_max
+  named-nofile: server_nofile
+
+knobs:
+  # --- socket buffers and kernel networking --------------------------------
+  rmem_max:
+    scope: host
+    type: int
+    min: 212992
+    max: 268435456
+    baseline: default
+    typical: 16777216
+    portable: true
+    system_config: rmem
+    description: net.core.rmem_max and rmem_default (stock 212992)
+  wmem_max:
+    scope: host
+    type: int
+    min: 212992
+    max: 268435456
+    baseline: default
+    typical: 16777216
+    portable: true
+    host: ["sysctl -q -w net.core.wmem_max=@value@ net.core.wmem_default=@value@"]
+    description: net.core.wmem_max and wmem_default
+  netdev_max_backlog:
+    scope: host
+    type: int
+    min: 1000
+    max: 1000000
+    baseline: default
+    typical: 30000
+    portable: true
+    system_config: netdev-max-backlog
+    description: net.core.netdev_max_backlog (stock 1000)
+  netdev_budget:
+    scope: host
+    type: pair
+    min: [300, 2000]
+    max: [100000, 1000000]
+    baseline: default
+    typical: "600/4000"
+    portable: true
+    system_config: netdev-budget
+    description: net.core.netdev_budget / netdev_budget_usecs (stock 300/2000)
+  udp_mem:
+    scope: host
+    type: enum
+    choices: [default, raised]
+    baseline: default
+    typical: raised
+    portable: true
+    system_config: udp-mem
+    description: udp_rmem_min/udp_wmem_min -> 16 KB and udp_mem x4
+  optmem_max:
+    scope: host
+    type: int
+    min: 20480
+    max: 16777216
+    baseline: default
+    typical: 65536
+    portable: true
+    system_config: optmem-max
+    description: net.core.optmem_max (stock 20480)
+  conntrack:
+    scope: host
+    type: enum
+    choices: [default, ufw-off, notrack, conntrack-raised]
+    baseline: default
+    typical: notrack
+    portable: true
+    system_config: udp-conntrack
+    description: ufw/conntrack handling of udp/53 (profile.py enables ufw)
+  rp_filter_off:
+    scope: host
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    host: ["sysctl -q -w net.ipv4.conf.all.rp_filter=0 net.ipv4.conf.default.rp_filter=0 net.ipv4.conf.@iface@.rp_filter=0"]
+    description: disable reverse-path filtering
+
+  # --- NIC, interrupts and packet steering ---------------------------------
+  irqbalance_off:
+    scope: host
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    host: ["systemctl stop irqbalance 2>/dev/null; true"]
+    description: stop irqbalance (it may stack several RX queue IRQs on one core)
+  irq_pin:
+    scope: host
+    type: enum
+    choices: [none, sequential, physical-cores]
+    baseline: none
+    typical: physical-cores
+    portable: true
+    host:
+      - |
+        [ "@value@" = none ] && exit 0
+        systemctl stop irqbalance 2>/dev/null
+        if [ "@value@" = physical-cores ]; then
+          cpus=$(lscpu -p=CPU,CORE | grep -v '^#' | sort -t, -k2,2n -u | cut -d, -f1)
+        else
+          cpus=$(seq 0 $(($(nproc) - 1)))
+        fi
+        set -- $cpus; n=$#; i=0
+        for irq in $(grep -E '@iface@' /proc/interrupts | cut -d: -f1 | tr -d ' '); do
+          eval c=\${$((i % n + 1))}
+          echo $c > /proc/irq/$irq/smp_affinity_list
+          i=$((i + 1))
+        done
+    description: pin the interface's queue IRQs one per CPU (sequential) or one per physical core
+  rps:
+    scope: host
+    type: enum
+    choices: [none, all-cpus]
+    baseline: none
+    typical: all-cpus
+    portable: true
+    host:
+      - |
+        [ "@value@" = none ] && exit 0
+        m=$(cpumask $(seq 0 $(($(nproc) - 1))))
+        for q in /sys/class/net/@iface@/queues/rx-*/rps_cpus; do echo $m > $q; done
+    description: receive packet steering over all CPUs (helps NICs whose RSS hashes only IP addresses)
+  xps:
+    scope: host
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    host:
+      - |
+        i=0
+        for q in /sys/class/net/@iface@/queues/tx-*; do
+          cpumask $((i % $(nproc))) > $q/xps_cpus; i=$((i + 1))
+        done
+    description: transmit packet steering, TX queue i -> CPU i
+  rx_coalesce_usecs:
+    scope: host
+    type: int
+    min: 0
+    max: 2000
+    baseline: default
+    typical: 200
+    portable: true
+    host: ["ethtool -C @iface@ adaptive-rx off 2>/dev/null; ethtool -C @iface@ rx-usecs @value@"]
+    description: NIC RX interrupt coalescing time (adaptive coalescing off)
+  rx_coalesce_frames:
+    scope: host
+    type: int
+    min: 1
+    max: 1024
+    baseline: default
+    typical: 128
+    portable: true
+    host: ["ethtool -C @iface@ rx-frames @value@"]
+    description: NIC RX interrupt coalescing frame count
+  gro_off:
+    scope: host
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    host: ["ethtool -K @iface@ gro off"]
+    description: disable generic receive offload
+  rx_ring:
+    scope: host
+    type: enum
+    choices: [default, max]
+    baseline: default
+    typical: max
+    portable: true
+    host:
+      - |
+        [ "@value@" = default ] && exit 0
+        n=$(ethtool -g @iface@ | awk '/Pre-set/ {f=1} f && /^RX:/ {print $2; exit}')
+        ethtool -G @iface@ rx $n
+    description: NIC RX ring size at the hardware maximum
+  nic_channels:
+    scope: host
+    type: int
+    min: 1
+    max: 256
+    baseline: default
+    typical: 16
+    portable: false
+    host: ["ethtool -L @iface@ combined @value@ 2>/dev/null || ethtool -L @iface@ rx @value@"]
+    description: number of NIC queues (channels)
+  qdisc:
+    scope: host
+    type: enum
+    choices: [default, pfifo_fast, fq, noqueue]
+    baseline: default
+    typical: pfifo_fast
+    portable: true
+    host:
+      - |
+        [ "@value@" = default ] && exit 0
+        sysctl -q -w net.core.default_qdisc=@value@
+        tc qdisc del dev @iface@ root 2>/dev/null
+        tc qdisc add dev @iface@ root handle 1: mq 2>/dev/null || tc qdisc replace dev @iface@ root @value@
+    description: root qdisc of the interface (children of mq use default_qdisc)
+
+  # --- CPU and memory ------------------------------------------------------
+  governor_performance:
+    scope: host
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    host: ["for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > $g; done; true"]
+    description: cpufreq governor performance on every CPU
+  cstate_max:
+    scope: host
+    type: int
+    min: 0
+    max: 9
+    baseline: default
+    typical: 1
+    portable: true
+    host:
+      - |
+        for s in /sys/devices/system/cpu/cpu*/cpuidle/state*; do
+          n=${s##*state}; [ "$n" -gt @value@ ] && echo 1 > $s/disable
+        done; true
+    description: disable idle states deeper than this index
+  thp:
+    scope: host
+    type: enum
+    choices: [default, always, madvise, never]
+    baseline: default
+    typical: always
+    portable: true
+    host: ["[ '@value@' = default ] || echo @value@ > /sys/kernel/mm/transparent_hugepage/enabled"]
+    description: transparent huge pages mode
+  mitigations_off:
+    scope: host
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    reboot: true
+    host:
+      - |
+        sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 mitigations=off"/' /etc/default/grub
+        update-grub
+    description: kernel command line mitigations=off (security cost; needs a reboot)
+
+  # --- the DNS server itself -----------------------------------------------
+  udp_rcvbuf:
+    scope: server
+    type: int
+    min: 1048576
+    max: 268435456
+    baseline: default
+    typical: 16777216
+    portable: true
+    software:
+      bind: ["udp-receive-buffer @value@;"]
+      nsd: ["receive-buffer-size: @value@"]
+    description: the server's UDP socket receive buffer (capped by rmem_max)
+  udp_sndbuf:
+    scope: server
+    type: int
+    min: 1048576
+    max: 268435456
+    baseline: default
+    typical: 16777216
+    portable: true
+    software:
+      bind: ["udp-send-buffer @value@;"]
+      nsd: ["send-buffer-size: @value@"]
+    description: the server's UDP socket send buffer (capped by wmem_max)
+  max_udp_size:
+    scope: server
+    type: int
+    min: 512
+    max: 4096
+    baseline: default
+    typical: 1232
+    portable: false
+    software:
+      bind: ["max-udp-size @value@;"]
+      knot: ["server.udp-max-payload: @value@"]
+    description: largest UDP response the server sends
+  workers:
+    scope: server
+    type: int
+    min: 1
+    max: 512
+    baseline: default
+    typical: cpus
+    portable: true
+    host_by_software:
+      bind: ["grep -q '^OPTIONS=' /etc/default/named || echo 'OPTIONS=\"-u bind\"' >> /etc/default/named; sed -i 's/^OPTIONS=\"\\(.*\\)\"/OPTIONS=\"\\1 -n @value@\"/' /etc/default/named"]
+    software:
+      knot: ["server.udp-workers: @value@"]
+      nsd: ["server-count: @value@"]
+    description: number of worker threads/processes ("cpus" = one per CPU of the server)
+  reuseport:
+    scope: server
+    type: enum
+    choices: [default, "yes", "no"]
+    baseline: default
+    typical: "yes"
+    portable: false
+    software:
+      bind: ["reuseport @value@;"]
+      nsd: ["reuseport: @value@"]
+    description: one SO_REUSEPORT socket per worker
+  server_thread_pin:
+    scope: server
+    type: bool
+    baseline: false
+    typical: true
+    portable: true
+    host_by_software:
+      bind:
+        - |
+          mkdir -p /etc/systemd/system/named.service.d
+          cat > /usr/local/sbin/campaign-pin-named <<'EOF'
+          #!/bin/bash
+          sleep 2
+          pid=$(pidof named) || exit 0
+          for t in /proc/$pid/task/*; do
+            n=$(cat $t/comm)
+            case $n in isc-loop-*|isc-net-*) c=${n##*-}; taskset -pc $((10#$c % $(nproc))) ${t##*/} >/dev/null;; esac
+          done
+          EOF
+          chmod +x /usr/local/sbin/campaign-pin-named
+          printf '[Service]\nExecStartPost=/usr/local/sbin/campaign-pin-named\n' > /etc/systemd/system/named.service.d/zz-campaign-pin.conf
+          systemctl daemon-reload
+    software:
+      knot: ["server.socket-affinity: on"]
+      nsd: ["cpu-affinity: auto"]
+    description: pin each server worker thread to its own CPU
+  message_compression_off:
+    scope: server
+    type: bool
+    baseline: false
+    typical: true
+    portable: false
+    software:
+      bind: ["message-compression no;"]
+    description: BIND skips name compression in responses
+  zone_statistics_off:
+    scope: server
+    type: bool
+    baseline: false
+    typical: true
+    portable: false
+    software:
+      bind: ["zone-statistics none;"]
+    description: BIND keeps no per-zone counters
+  server_nofile:
+    scope: server
+    type: int
+    min: 1024
+    max: 4194304
+    baseline: default
+    typical: 1048576
+    portable: false
+    system_config: named-nofile
+    description: LimitNOFILE for named.service

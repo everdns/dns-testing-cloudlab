@@ -28,6 +28,11 @@ import sys
 import time
 
 from bind_config import install_options, load_base_options, render_options
+import knobs
+import ledger as ledger_mod
+from max_sustainable_qps import get_clients
+from servers import get_adapter
+import validity
 from search import (
     OPTIMIZATION_DIR,
     Evaluator,
@@ -152,6 +157,12 @@ def main():
                         help="Keep and skip points already recorded by this mode")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print each proposed configuration and stop")
+    parser.add_argument("--ledger", metavar="PATH",
+                        help="Append every measurement to this ledger")
+    parser.add_argument("--env", help="Environment name recorded in the ledger")
+    parser.add_argument("--validate", action="store_true",
+                        help="Check every measurement for correct answers and "
+                             "an unchanged zone/query input (validity.py)")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -223,9 +234,27 @@ def main():
             log.error("Could not snapshot host settings on %s: %s", server, e)
             return 2
 
+    ledger = None
+    if args.ledger:
+        ledger = ledger_mod.Ledger(
+            args.ledger, env=args.env, software="bind",
+            hardware=ledger_mod.fingerprint(server, get_clients(config)[0]),
+            phase=args.mode.replace("-", "_"),
+            experiment_id=os.path.basename(search_output_dir),
+            min_qps_fidelity_pct=config["max_sustainable_qps"].get("min_qps_fidelity_pct"))
+    validator = None
+    if args.validate:
+        validator = validity.Validator(config, get_adapter(dns_service))
+        try:
+            validator.ensure_reference()
+        except (validity.ValidityError, RuntimeError, TimeoutError) as e:
+            log.error("Could not capture the reference answers: %s", e)
+            return 2
+
     evaluator = Evaluator(config, server, base_text, system_baseline,
                           search_output_dir, results_name, args.point_timeout,
-                          resumed)
+                          resumed, validator=validator, ledger=ledger,
+                          catalog=knobs.load())
     started = time.time()
 
     try:

@@ -8,6 +8,8 @@ each one (used by run_searches.sh).
 reset restores named.conf.options and the host state (host_state.restore),
 restarts the DNS service, and checks that the server answers. Exit codes:
 0 reset and verified, 1 restored but a check failed, 3 could not restore.
+campaign/campaign.py calls reset() with the adapters of every server software
+it has used, so their configs are restored too.
 """
 import argparse
 import json
@@ -19,9 +21,9 @@ import sys
 import yaml
 
 import host_state
-from bind_config import BindConfigError, load_base_options, read_installed, restore_base
 from max_sustainable_qps import ssh_run
 from search import OPTIMIZATION_DIR
+from servers import ServerConfigError, get_adapter
 
 log = logging.getLogger("searches_reset")
 
@@ -54,15 +56,19 @@ def answers(server):
     return server in result.stdout.split()
 
 
-def reset(server, config, baseline_path):
+def reset(server, config, baseline_path, adapters=None):
+    """Restore the host and every adapter's base config (default: BIND),
+    restart config["dns_service"] and check it answers."""
     with open(baseline_path) as f:
         baseline = json.load(f)
-    base_text = load_base_options()
+    adapters = adapters or [get_adapter("bind")]
+    bases = {a.name: a.load_base() for a in adapters}
 
     try:
-        restore_base(server, base_text)
         drift, errors = host_state.restore(server, baseline)
-    except (BindConfigError, host_state.HostStateError) as e:
+        for adapter in adapters:
+            adapter.restore_base(server, bases[adapter.name])
+    except (ServerConfigError, host_state.HostStateError) as e:
         log.error("Could not restore %s: %s", server, e)
         return EXIT_RESTORE_FAILED
     if errors:
@@ -73,8 +79,9 @@ def reset(server, config, baseline_path):
         failures.append("DNS service did not restart")
     if not answers(server):
         failures.append(f"{server} does not answer {QUERY_NAME}")
-    if read_installed(server).strip() != base_text.strip():
-        failures.append("named.conf.options differs from the base file")
+    for adapter in adapters:
+        if adapter.read_installed(server).strip() != bases[adapter.name].strip():
+            failures.append(f"{adapter.config_path} differs from the base file")
     if drift:
         # Informational: sysfs/NIC values can differ in form after a JSON round trip.
         log.warning("%d item(s) differ from the pristine snapshot: %s",

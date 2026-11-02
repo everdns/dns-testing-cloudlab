@@ -32,6 +32,9 @@ Prior to running testing it is required to add the ssh key of the host running t
 ## Load Testing Benchmark
 This is a suite of scripts designed to benchmark load generation tools and DNS software using the DNS Workbench. See load_testing_benchmark/README.md for more details. 
 
+## Optimization campaigns
+`optimization/` holds the configuration searches (grid, coordinate descent, Claude agent). `campaign/` runs them continuously on a live environment: calibration, agent exploration, knob attribution, factorial designs and source-code changes, with every measurement validity-checked and recorded in one ledger format. `analysis/importance.py` compares the knobs' effects across hardware. See [campaign/README.md](campaign/README.md).
+
 ## DNS Workbench Helper Scripts
 
 ### start_dns_service.sh

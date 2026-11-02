@@ -123,6 +123,49 @@ def render_options(base_text, overrides):
     return base_text[:body_start] + new_body + base_text[body_end:]
 
 
+def statement_keyword(statement):
+    """The leading keyword of a named.conf.options statement."""
+    match = re.match(r"\s*([A-Za-z0-9-]+)", statement)
+    if not match:
+        raise BindConfigError(f"not a named.conf.options statement: {statement!r}")
+    return match.group(1)
+
+
+def check_raw_statement(statement):
+    """Return ``statement`` stripped, or raise if it is not one statement
+    ending in ';' or sets a protected option. named-checkconf checks the
+    rest when the file is installed."""
+    text = statement.strip()
+    if not text.endswith(";"):
+        raise BindConfigError(f"statement must end with ';': {statement!r}")
+    if text.count("{") != text.count("}"):
+        raise BindConfigError(f"unbalanced braces in statement: {statement!r}")
+    keyword = statement_keyword(text)
+    if keyword in ("options", "zone", "include", "view"):
+        raise BindConfigError(f"{keyword} is not an options-block statement")
+    if keyword in FORBIDDEN:
+        raise BindConfigError(f"refusing to set protected statement: {keyword}")
+    return text
+
+
+def render_raw_options(base_text, statements):
+    """Like render_options, but with free-form statements. A base statement
+    with the same keyword is replaced (single-line base statements only)."""
+    checked = [check_raw_statement(s) for s in statements]
+    keywords = {statement_keyword(s) for s in checked}
+
+    body_start, body_end = find_options_block(base_text)
+    body = base_text[body_start:body_end]
+    kept = [line for line in body.splitlines()
+            if not (line.strip() and line.strip().split()[0].rstrip(";") in keywords)]
+    while kept and not kept[-1].strip():
+        kept.pop()
+
+    added = [INDENT + s.replace("\n", "\n" + INDENT) for s in checked]
+    new_body = "\n".join(kept + added) + "\n"
+    return base_text[:body_start] + new_body + base_text[body_end:]
+
+
 def _sh(server, command, check=True, timeout=60):
     result = ssh_run(server, command, timeout=timeout, check=False)
     if check and result.returncode != 0:

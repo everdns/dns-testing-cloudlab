@@ -429,13 +429,37 @@ def wait_for_dns_ready(config, timeout=300):
     deadline = time.time() + timeout
 
     while time.time() < deadline:
-        result = ssh_run(client, f"dig @{server}", timeout=5)
+        try:
+            result = ssh_run(client, f"dig @{server}", timeout=5)
+        except subprocess.TimeoutExpired:
+            time.sleep(1)
+            continue
         if result.returncode == 0 and result.stdout.strip():
             log.info("DNS server at %s is ready", server)
             return True
         time.sleep(1)
 
     raise TimeoutError(f"DNS server at {server} not ready after {timeout}s")
+
+
+def reset_clients(config, tool):
+    """Undo client-side state a previous, interrupted run may have left behind
+    (e.g. an XDP program still attached by a killed kxdpgun)."""
+    clients = get_clients(config)
+    commands = {}
+    for host in clients:
+        command = tool.cleanup_command(
+            {**config, "client_interface": client_interface_for(config, host)})
+        if command:
+            commands[host] = command
+    if not commands:
+        return
+    results = ssh_run_many(commands, timeout=30)
+    for host in clients:
+        _, stderr, rc, timed_out = extract_run_result(results[host])
+        if timed_out or rc != 0:
+            log.warning("Client cleanup on %s failed (%s): %s", host,
+                        "timed out" if timed_out else f"rc={rc}", stderr.strip())
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +685,11 @@ class Tool(ABC):
         """Check tool-specific constraints. Raise ValueError on violation."""
         pass
 
+    def cleanup_command(self, config):
+        """Shell command that undoes any client-side state this tool leaves
+        behind when it is killed mid-run, or None if there is nothing to undo."""
+        return None
+
 
 class Dnsperf(Tool):
     name = "dnsperf"
@@ -730,12 +759,18 @@ class Kxdpgun(Tool):
         input_file = config["input_file"]
         interface = config["client_interface"]
 
+        # Detach the XDP program even when kxdpgun fails, keeping its exit
+        # status. A program left attached swallows every reply on the
+        # interface, so later readiness checks and trials all time out.
         return (
             f"sudo kxdpgun -t {runtime} -Q {qps}"
             f" -i {input_file} -I {interface}"
             f" {server} --mode generic"
-            f" && sudo ip link set dev {interface} xdpgeneric off"
+            f"; rc=$?; {self.cleanup_command(config)}; exit $rc"
         )
+
+    def cleanup_command(self, config):
+        return f"sudo ip link set dev {config['client_interface']} xdpgeneric off"
 
     def parse_output(self, stdout):
         result = ToolResult(raw_output=stdout)
@@ -805,6 +840,7 @@ def validate_search_config(config):
     answer_rate_threshold = float(section.get("answer_rate_threshold", 99.0))
     min_qps_fidelity_pct = float(section.get("min_qps_fidelity_pct", 99.0))
     collectl_margin = int(section.get("collectl_margin", 5))
+    ramp_factor = float(section.get("ramp_factor", 2.0))
 
     if initial_qps <= 0:
         raise ValueError(
@@ -844,6 +880,10 @@ def validate_search_config(config):
     if collectl_margin < 0:
         raise ValueError(
             f"max_sustainable_qps.collectl_margin must be >= 0, got {collectl_margin}"
+        )
+    if ramp_factor <= 1.0:
+        raise ValueError(
+            f"max_sustainable_qps.ramp_factor must be > 1, got {ramp_factor}"
         )
     if max_qps < min_qps_step:
         raise ValueError(
@@ -887,9 +927,11 @@ def validate_search_config(config):
         "min_qps_fidelity_pct": min_qps_fidelity_pct,
         "collectl": bool(section.get("collectl", False)),
         "collectl_margin": collectl_margin,
+        "ramp_factor": ramp_factor,
         "tool": tool,
         "dns_service": dns_service,
         "simulate_max_qps": None,
+        "hooks": None,
     }
 
 
@@ -1001,6 +1043,15 @@ def run_trial(config, params, qps, trial, trial_store):
             log.warning("Failed to start collectl: %s. Continuing without it.", e)
             collectl_session = None
 
+    hooks = params.get("hooks")
+    hook_handle = None
+    if hooks is not None:
+        try:
+            hook_handle = hooks.trial_start(config, qps, trial)
+        except Exception as e:
+            log.warning("Trial hook failed to start at %d QPS trial %d: %s",
+                        qps, trial + 1, e)
+
     try:
         for host, cmd in host_cmds.items():
             log.info("Running on %s: %s", host, cmd)
@@ -1073,6 +1124,13 @@ def run_trial(config, params, qps, trial, trial_store):
         log.error("Error running %s at %d QPS trial %d: %s",
                   tool.name, qps, trial + 1, e)
         row["status"] = "error"
+
+    # Like collectl, a hook only adds fields; it never fails a trial.
+    if hook_handle is not None:
+        try:
+            row.update(hooks.trial_end(hook_handle) or {})
+        except Exception as e:
+            log.warning("Trial hook failed at %d QPS trial %d: %s", qps, trial + 1, e)
 
     # Collect collectl regardless of how the run went; it must never fail a trial.
     if collectl_session is not None:
@@ -1236,7 +1294,9 @@ def run_search(config, params, trial_store, level_store):
             )
             break
 
-        high_qps_idx *= 2
+        # A ramp_factor below 2 (with initial_qps near a known result) needs
+        # fewer levels when the answer is roughly known already.
+        high_qps_idx = max(high_qps_idx + 1, int(high_qps_idx * params["ramp_factor"]))
 
     if not hit_ceiling:
         log.info("--- Phase 2: binary search between %d and %d QPS ---",
@@ -1272,7 +1332,14 @@ def run_search(config, params, trial_store, level_store):
     }
 
 
-def run_max_sustainable_qps(config, output_dir, simulate_max_qps=None):
+def _call_hook(hook, config, simulating):
+    try:
+        hook(config, simulating)
+    except Exception as e:
+        log.warning("Measurement hook %s failed: %s", getattr(hook, "__name__", hook), e)
+
+
+def run_max_sustainable_qps(config, output_dir, simulate_max_qps=None, hooks=None):
     """Validate ``config``, run the full search, and return (summary, trial_rows).
 
     Manages the DNS service lifecycle (start/stop) around the search unless
@@ -1281,11 +1348,17 @@ def run_max_sustainable_qps(config, output_dir, simulate_max_qps=None):
     ``output_dir/max_sustainable_qps/`` as a side effect, but the return value
     is the source of truth for callers running in-process (e.g. grid_search.py).
 
+    ``hooks`` (optional, see validity.MeasurementHooks) is called with the
+    service up: on_ready(config) once it answers, trial_start/trial_end around
+    every trial (their fields are added to the trial row), and
+    before_stop(config) after the search. Hooks never fail the search.
+
     Raises ValueError on a bad config, RuntimeError or TimeoutError if the DNS
     service fails to start.
     """
     params = validate_search_config(config)
     params["simulate_max_qps"] = simulate_max_qps
+    params["hooks"] = hooks
     simulating = simulate_max_qps is not None
 
     trial_store = ResultStore(output_dir)
@@ -1312,15 +1385,24 @@ def run_max_sustainable_qps(config, output_dir, simulate_max_qps=None):
     manage_service = not simulating and not config.get("dry_run")
 
     if manage_service:
+        reset_clients(config, params["tool"])
         stop_dns_service(config)
         time.sleep(2)
         start_dns_service(config, params["dns_service"])
         wait_for_dns_ready(config, timeout=300)
+    if hooks is not None and not config.get("dry_run"):
+        _call_hook(hooks.on_ready, config, simulating)
 
     try:
         summary = run_search(config, params, trial_store, level_store)
     finally:
+        if hooks is not None and not config.get("dry_run"):
+            _call_hook(hooks.before_stop, config, simulating)
         if manage_service:
+            try:
+                reset_clients(config, params["tool"])
+            except Exception as e:
+                log.warning("Failed to reset clients: %s", e)
             try:
                 stop_dns_service(config, params["dns_service"])
             except Exception as e:

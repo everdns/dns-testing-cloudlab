@@ -36,14 +36,29 @@ max_sustainable_qps:
   collectl_margin: 3
 
 agent:
-  max_configs: 20          # most configurations to test (--max-configs overrides)
+  # bounded: the agent picks values for the parameters below, within their
+  #          agent: bounds.
+  # open:    the agent may apply any named.conf.options statements (except
+  #          listen-on, allow-query, recursion, rate-limit, directory) and any
+  #          root shell commands on the name server, including kernel command
+  #          line changes and reboots. host_state.py snapshots the server first
+  #          and restores it after every measurement. --mode overrides.
+  mode: open
+  reboot_timeout: 900      # open mode: seconds to wait for the server after a reboot
+  max_configs: 20          # most measurements, repeats included (--max-configs overrides)
   backend: api             # api (Anthropic API credits) | claude-code (claude -p, subscription limits)
   # model: claude-opus-5   # default: claude-opus-5 for api, Claude Code's default for claude-code
   effort: high             # low | medium | high | xhigh | max
+  # max_turns: 180         # default: 8 per measurement + 20
+  # claude-code backend: stop measuring (the agent writes its report) once the
+  # subscription's usage reaches these percentages. Leave out for no limit.
+  max_session_usage: 50    # 5-hour session window (--max-session-usage)
+  max_weekly_usage: 50     # weekly window (--max-weekly-usage)
 
-# The agent may propose any value within each parameter's agent bounds.
-# "values" are shown to it as suggestions; the first value of every parameter
-# is the seed point (--agent-seed first).
+# Bounded mode: the agent may measure any value within each parameter's agent
+# bounds. "values" are shown to it as suggestions; the first value of every
+# parameter makes up the starting (baseline) configuration.
+# Open mode: these are shown to the agent only as known knobs to consider.
 parameters:
   - name: udp-receive-buffer
     values: [4194304, 16777216]
