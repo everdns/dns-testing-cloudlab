@@ -1,0 +1,63 @@
+# Continuous optimization campaign for one CloudLab environment (campaign.py).
+# Copy to ~/campaign/campaign.yaml on test_host_0 and set env; everything else
+# has working defaults. Hosts, client interfaces, the load generator and the
+# max-sustainable-QPS settings come from search_config.
+
+env: CHANGE_ME              # hardware type of this environment, e.g. rs620, d710, r320
+search_config: ../optimization/agent_search.yaml   # relative to this file
+state_dir: ~/campaign        # ledger, experiments, state, inbox, STOP/ALERT files
+
+# When the CloudLab experiment expires (ISO 8601, UTC). The laptop's
+# campaign_sync.py writes ~/campaign/expires_at from cloudlab_status; this
+# value is the fallback. Under alert_hours left, ~/campaign/ALERT is written.
+expires_at: null
+alert_hours: 24
+
+# Server software tuned by the explore / attribute / factorial phases, in turn.
+software: [bind]
+
+# One cycle runs these steps in order, then starts over. calibrate runs on its
+# own whenever it is due. Steps whose prerequisites are missing are skipped;
+# LLM steps (explore, source) are deferred while Claude usage is exhausted.
+cycle: [explore, attribute, factorial, source]
+
+calibrate:
+  every_hours: 24           # repeat the stock baseline this often
+  replicates: 3
+  client_probe_qps: 3000000 # what the clients are asked to send in the ceiling probe
+  cap_max_qps: true         # lower max_qps to just above what the clients can send
+
+explore:
+  max_configs: 20           # measurements per agent session
+  confirm_within_sigma: 2.0 # re-measure candidates this close to the best...
+  confirm_replicates: 3     # ...until they have this many runs
+
+attribute:
+  replicates: 3
+  max_knobs: 8              # knobs of the best configuration to attribute
+  warm_start: true          # start each QPS search near the expected result
+
+factorial:
+  replicates: 3
+  max_factors: 8            # 16-run resolution IV design for 5-8 factors
+  min_factors: 3
+
+source:
+  enabled: true
+  rotation: [bind, knot, nsd]
+  max_configs: 12           # measurements per session (base replicates excluded)
+  max_builds: 10
+  base_replicates: 3
+  install_missing: true     # run ns_software/<sw>/install.sh if the server lacks it
+  refs: {}                  # override the git tag per software, e.g. {bind: v9.20.15}
+
+agent:
+  backend: claude-code      # claude -p, subscription usage limits
+  # model: claude-opus-5-5
+  effort: high
+  max_session_usage: 80     # % of the 5-hour window before an agent must finish
+  max_weekly_usage: 80      # % of the weekly window
+  backoff_hours: 2          # how long LLM steps wait after usage ran out
+
+point_timeout: 21600        # seconds for one measurement
+validate: true              # validity gate on every measurement

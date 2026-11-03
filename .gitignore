@@ -4,5 +4,5 @@ results/
 cloudlab_token
 .cloudlab_token
 .claude*
-campaign/
+campaign/envs.yaml
 analysis/
