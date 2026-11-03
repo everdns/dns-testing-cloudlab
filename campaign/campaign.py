@@ -467,7 +467,30 @@ class Campaign:
 
     def llm_available(self):
         until = parse_time(self.state.get("llm_paused_until"))
-        return until is None or utcnow() >= until
+        if until is not None and utcnow() < until:
+            return False
+        return self.llm_configured()
+
+    def llm_configured(self):
+        """True if the agent backend can authenticate: for claude-code, the
+        claude binary is on PATH and has been logged in (run `claude` once on
+        this node); for api, ANTHROPIC_API_KEY is set. Until then LLM steps
+        wait and the measurement-only steps run."""
+        agent = self.cfg.get("agent", {})
+        if self.simulate:
+            return True
+        if agent.get("backend", "claude-code") == "api":
+            ok = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        else:
+            ok = (shutil.which(agent.get("claude_bin", "claude")) is not None
+                  and os.path.exists(os.path.expanduser("~/.claude/.credentials.json")))
+        if not ok and not self.state.get("llm_unconfigured_logged"):
+            log.warning("Claude is not set up on this node (install Claude Code and run "
+                        "`claude` once to log in); explore and source steps wait until it is")
+            self.state["llm_unconfigured_logged"] = True
+        elif ok:
+            self.state.pop("llm_unconfigured_logged", None)
+        return ok
 
     def pause_llm(self, why):
         hours = self.cfg.get("agent", {}).get("backoff_hours", 2)
@@ -545,6 +568,14 @@ class Campaign:
         except Exception as e:  # noqa: BLE001 - one failed step must not end the campaign
             log.exception("%s failed", exp.id)
             outcome = {"status": "error", "error": str(e)}
+        if outcome.get("status") == "skipped":
+            # Nothing ran: keep the log line, not an experiment directory.
+            shutil.rmtree(exp.dir, ignore_errors=True)
+            self.state["experiment_seq"] -= 1
+            self.state.pop("current", None)
+            self.save_state()
+            log.info("===== %s skipped: %s =====", exp.id, outcome.get("skipped"))
+            return outcome
         record = exp.save(finished=utcnow().isoformat(), **outcome)
         self.state.setdefault("history", []).append(
             {k: record.get(k) for k in ("id", "step", "software", "status", "finished",
@@ -567,6 +598,7 @@ class Campaign:
             return EXIT_RESTORE_FAILED
         done = 0
         failures = 0
+        skipped = 0   # consecutive steps that had nothing to do
         while max_experiments is None or done < max_experiments:
             if os.path.exists(self.flag("STOP")):
                 log.info("STOP file found; ending the campaign")
@@ -595,6 +627,17 @@ class Campaign:
                 self.advance(step)
             self.save_state()
             done += 1
+            if outcome.get("status") == "skipped":
+                # Nothing was applied, so no reset. When a whole cycle had
+                # nothing to do (e.g. no explore results yet and Claude not
+                # set up), wait instead of cycling through skips.
+                skipped += 1
+                if not only_step and skipped >= len(self.cfg.get("cycle") or [1]):
+                    log.info("Every step was skipped; sleeping %d s", HEALTH_RETRY_S)
+                    time.sleep(HEALTH_RETRY_S)
+                    skipped = 0
+                continue
+            skipped = 0
             if self.reset_server() == EXIT_RESTORE_FAILED:
                 return EXIT_RESTORE_FAILED
         return 0
