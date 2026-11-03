@@ -19,6 +19,10 @@ class NsdAdapter(ServerAdapter):
                  "username", "chroot")
     source_repo = "https://github.com/NLnetLabs/nsd.git"
     tag_format = "NSD_{major}_{minor}_{patch}_REL"
+    software_dir = "/etc/nsd"
+    custom_args = "-c /etc/nsd/nsd.conf"
+    custom_stop_package = "pkill -x nsd"
+    custom_prepare = "mkdir -p /var/db/nsd"
 
     def check_statement(self, statement):
         merge_key_lines("", "server", [statement], "\t", self.forbidden)

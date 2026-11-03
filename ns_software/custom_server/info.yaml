@@ -1,0 +1,21 @@
+# The custom (source-built) server that runs as ns_custom_server.
+# start.sh and stop.sh read these values with sed, so keep each on one line.
+# optimization/source_tools.py rewrites this file on the name server for the
+# build it activates (ServerAdapter.custom_server_info in optimization/servers/);
+# the values below are the BIND defaults.
+software_dir: /etc/bind
+plotting_name: Custom build
+software: bind
+# Install prefix of the active build (optimization/servers/build_source.sh)
+prefix: /opt/dnsbuild/bind/prefix
+# Server binary, relative to prefix, and its arguments
+binary: sbin/named
+args: -c /etc/bind/named.conf
+# Sourced before starting; its $OPTIONS are appended to args (else options_default)
+options_file: /etc/default/named
+options_default: -u bind
+# Run as root before starting: stop the package server, prepare runtime dirs
+stop_package: systemctl stop named
+prepare: mkdir -p /run/named && chown bind:bind /run/named
+# stop.sh kills every process whose command line matches this
+kill_pattern: ^/opt/dnsbuild/

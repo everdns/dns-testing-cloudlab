@@ -6,8 +6,10 @@ A ServerAdapter covers the differences between BIND, Knot DNS and NSD:
     configuration, how free-form statements are merged into it, and the
     command that validates the result before the service is restarted;
   - the service names start_dns_service.sh knows: ``ns_<name>`` for the
-    installed (package) server and ``ns_<name>_src`` for the source build in
-    SOURCE_PREFIX (see build_source.sh and source_tools.py);
+    installed (package) server and ``ns_custom_server`` for a source build in
+    source_prefix (see build_source.sh and source_tools.py). The custom
+    server's start/stop scripts read ns_software/custom_server/info.yaml,
+    which custom_server_info() renders for this software;
   - where its upstream source lives and how to read its version, binary and
     zone file, for the validity checks and the ledger.
 
@@ -28,6 +30,8 @@ log = logging.getLogger("servers")
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SOURCE_ROOT = "/opt/dnsbuild"
+CUSTOM_SERVICE = "ns_custom_server"
+CUSTOM_INFO_PATH = "/local/repository/ns_software/custom_server/info.yaml"
 
 
 class ServerConfigError(Exception):
@@ -47,6 +51,13 @@ class ServerAdapter:
     forbidden = ()          # keys an agent may not set
     source_repo = ""        # upstream git repository
     tag_format = "v{version}"  # git tag for a release version
+    # ns_software/custom_server/info.yaml values for a source build
+    software_dir = ""            # config directory
+    custom_args = ""             # arguments of the server binary
+    custom_options_file = ""     # sourced before start; its $OPTIONS are appended
+    custom_options_default = ""  # $OPTIONS when there is no options file
+    custom_stop_package = ""     # stops the package server
+    custom_prepare = ""          # creates runtime directories
 
     # -- services ----------------------------------------------------------
 
@@ -56,7 +67,7 @@ class ServerAdapter:
 
     @property
     def source_service(self):
-        return f"ns_{self.name}_src"
+        return CUSTOM_SERVICE
 
     @property
     def source_prefix(self):
@@ -77,6 +88,33 @@ class ServerAdapter:
                 f"echo sha=$(sha256sum $b 2>/dev/null | cut -c1-16); "
                 f"echo version=$($b {self.version_flag} 2>&1 | head -1); "
                 f"echo build_id={build_id}")
+
+    def custom_server_info(self):
+        """ns_software/custom_server/info.yaml for this software's source
+        build (one value per line: the scripts read it with sed)."""
+        values = {
+            "software_dir": self.software_dir,
+            "plotting_name": f"{self.name} (custom build)",
+            "software": self.name,
+            "prefix": self.source_prefix,
+            "binary": f"sbin/{self.process}",
+            "args": self.custom_args,
+            "options_file": self.custom_options_file,
+            "options_default": self.custom_options_default,
+            "stop_package": self.custom_stop_package,
+            "prepare": self.custom_prepare,
+            "kill_pattern": f"^{SOURCE_ROOT}/",
+        }
+        header = "# Written by optimization/servers for the active source build.\n"
+        return header + "".join(f"{k}: {v}\n" for k, v in values.items())
+
+    def install_custom_server(self, server):
+        """Point ns_custom_server at this software's source build."""
+        result = ssh_run(server, f"sudo tee {CUSTOM_INFO_PATH} >/dev/null <<'EOF'\n"
+                                 f"{self.custom_server_info()}EOF", timeout=60)
+        if result.returncode != 0:
+            raise ServerConfigError(f"could not write {CUSTOM_INFO_PATH}: "
+                                    f"{(result.stderr or '').strip()[-300:]}")
 
     def identity(self, server, service):
         result = ssh_run(server, self.identity_command(service), timeout=60)

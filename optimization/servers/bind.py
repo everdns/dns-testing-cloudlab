@@ -18,6 +18,12 @@ class BindAdapter(ServerAdapter):
     forbidden = tuple(sorted(bind_config.FORBIDDEN))
     source_repo = "https://gitlab.isc.org/isc-projects/bind9.git"
     tag_format = "v{version}"
+    software_dir = "/etc/bind"
+    custom_args = "-c /etc/bind/named.conf"
+    custom_options_file = "/etc/default/named"   # the workers knob edits it
+    custom_options_default = "-u bind"
+    custom_stop_package = "systemctl stop named"
+    custom_prepare = "mkdir -p /run/named && chown bind:bind /run/named"
 
     def check_statement(self, statement):
         try:

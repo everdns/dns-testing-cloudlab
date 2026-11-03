@@ -169,7 +169,7 @@ python3 grid_search.py --mode coordinate-descent --ledger ~/campaign/ledger.json
 
 `servers/` holds one adapter per authoritative server: `bind.py`, `knot.py`, `nsd.py`. Each one knows its config file, how statements merge into it, how to validate it, its zone path, its binary and its upstream git tag. Open mode works with any of them (`--dns-service ns_knot`). Bounded and grid searches tune BIND parameters only.
 
-`ns_software/<sw>_src/` adds the services `ns_bind_src`, `ns_knot_src` and `ns_nsd_src`. They run a source build from `/opt/dnsbuild/<sw>/prefix`, using the same config and zone files as the package server.
+`ns_software/custom_server/` adds the service `ns_custom_server`, which runs a source build from `/opt/dnsbuild/<sw>/prefix` with the same config and zone files as the package server. Its `start.sh` and `stop.sh` take everything from `info.yaml`: the software, prefix, binary, arguments, options file, the command that stops the package server, runtime-directory setup and the process pattern to kill. The repo copy holds the BIND values. When `source_tools.py` activates a build, it rewrites the server's copy with that software's values (`custom_server_info()` in `servers/`).
 
 `servers/build_source.sh` builds a tree on the name server into that prefix and keeps every build as `/opt/dnsbuild/<sw>/builds/<build_id>.tgz`. It always uses the same flags, and its `activate` command restores a saved build.
 

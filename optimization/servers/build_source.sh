@@ -6,7 +6,8 @@
 #   build_source.sh activate <bind|knot|nsd> <build_id>
 #
 # Every build of one software installs into the same prefix,
-# /opt/dnsbuild/<sw>/prefix, which is what ns_software/<sw>_src/start.sh runs.
+# /opt/dnsbuild/<sw>/prefix, which ns_software/custom_server/start.sh runs when
+# its info.yaml names that software.
 # A fixed prefix keeps libtool's baked-in library paths valid, and lets make
 # rebuild only what a patch touched. Each installed build is kept as
 # /opt/dnsbuild/<sw>/builds/<build_id>.tgz; "activate" puts one back.

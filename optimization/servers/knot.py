@@ -21,6 +21,10 @@ class KnotAdapter(ServerAdapter):
     forbidden = ("listen", "rundir", "user", "storage")
     source_repo = "https://gitlab.nic.cz/knot/knot-dns.git"
     tag_format = "v{version}"
+    software_dir = "/etc/knot"
+    custom_args = "-c /etc/knot/knot.conf -d"
+    custom_stop_package = "systemctl stop knot"
+    custom_prepare = "mkdir -p /run/knot && chown knot:knot /run/knot"
 
     def _split(self, statement):
         head, sep, value = statement.strip().partition(":")

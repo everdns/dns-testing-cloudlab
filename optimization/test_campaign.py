@@ -228,7 +228,7 @@ class StatsTest(unittest.TestCase):
 
 class AdapterTest(unittest.TestCase):
     def test_render_and_protect(self):
-        nsd = get_adapter("ns_nsd_src")
+        nsd = get_adapter("ns_nsd")
         text = nsd.render(nsd.load_base(), ["server-count: 8", "reuseport: no"])
         self.assertIn("\tserver-count: 8", text)
         self.assertNotIn("server-count: 40", text)
@@ -241,6 +241,21 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(nsd.release_tag("NSD version 4.14.1"), "NSD_4_14_1_REL")
         with self.assertRaises(ServerConfigError):
             bind.render(bind.load_base(), ["listen-on { any; };"])
+
+    def test_custom_server_info(self):
+        def keys(text):
+            return [line.split(":", 1)[0] for line in text.splitlines()
+                    if line.strip() and not line.startswith("#")]
+        repo_info = os.path.join(os.path.dirname(HERE), "ns_software", "custom_server",
+                                 "info.yaml")
+        with open(repo_info) as f:
+            expected = keys(f.read())
+        for software in ("bind", "knot", "nsd"):
+            info = get_adapter(software).custom_server_info()
+            self.assertEqual(keys(info), expected, software)
+            self.assertIn(f"prefix: /opt/dnsbuild/{software}/prefix", info)
+        with self.assertRaises(ServerConfigError):
+            get_adapter("ns_custom_server")
 
 
 class ValidityResultTest(unittest.TestCase):

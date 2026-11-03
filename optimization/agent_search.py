@@ -193,7 +193,7 @@ def main():
                              "(default: agent.max_weekly_usage, else no limit)")
     parser.add_argument("--dns-service",
                         help="DNS service to evaluate (overrides the config), "
-                             "e.g. ns_knot or ns_bind_src")
+                             "e.g. ns_knot or ns_nsd")
     parser.add_argument("--ledger", metavar="PATH",
                         help="Append every measurement to this ledger "
                              f"(e.g. {ledger_mod.DEFAULT_PATH})")

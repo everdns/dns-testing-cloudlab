@@ -18,7 +18,8 @@ touches the name server goes through these tools:
   get_results, get_run_details, finish
 
 Builds (servers/build_source.sh) all install into one prefix per software,
-which ns_software/<sw>_src/start.sh runs; each build is kept as a tarball and
+which ns_software/custom_server/start.sh runs (its info.yaml is rewritten
+for the software being measured); each build is kept as a tarball and
 re-activated before it is measured. Every measurement runs on the
 environment's frozen host profile (knobs, e.g. the best valid host tuning
 from the attribution phase), so the comparison is code against code. The
@@ -160,8 +161,9 @@ def patch_sha(patch):
 
 class SourceEvaluator(OpenEvaluator):
     """OpenEvaluator whose points also name a build: the build is activated
-    on the server before the host profile is applied, and the service under
-    test is the adapter's source service."""
+    on the server and ns_custom_server's info.yaml is written for this
+    software before the host profile is applied, and the service under test
+    is ns_custom_server."""
 
     def __init__(self, *args, builds=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -176,6 +178,7 @@ class SourceEvaluator(OpenEvaluator):
         if result.returncode != 0:
             raise ServerConfigError(f"could not activate build {build_id}: "
                                     f"{(result.stderr or result.stdout).strip()[-500:]}")
+        self.adapter.install_custom_server(self.server)
         super()._apply(overrides, run_dir)
 
     def ledger_extra(self, overrides):
