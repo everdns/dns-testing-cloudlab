@@ -417,6 +417,18 @@ def stop_dns_service(config, service_name=None):
         log.warning("Stop command returned non-zero: %s", result.stderr)
 
 
+def restart_dns_service(config, service_name):
+    """Stop and start a DNS service, then wait until it answers queries.
+
+    A server that has just been overloaded can serve later trials worse than a
+    fresh one, so each trial starts from a freshly started server.
+    """
+    stop_dns_service(config, service_name)
+    time.sleep(2)
+    start_dns_service(config, service_name)
+    wait_for_dns_ready(config, timeout=300)
+
+
 def wait_for_dns_ready(config, timeout=300):
     """Poll until the DNS server on the resolver IP responds to queries.
 
@@ -1012,6 +1024,18 @@ def run_trial(config, params, qps, trial, trial_store):
     log.info("Trial %d at %d QPS: %s vs %s across %d host(s): %s",
              trial + 1, qps, tool.name, dns_service, len(clients),
              dict(zip(clients, shares)))
+
+    if dry_run:
+        log.info("[DRY RUN] Would restart %s on %s before the trial",
+                 dns_service, config["hosts"]["server"])
+    else:
+        try:
+            restart_dns_service(config, dns_service)
+        except Exception as e:
+            log.error("Failed to restart %s before %d QPS trial %d: %s",
+                      dns_service, qps, trial + 1, e)
+            row["status"] = "restart_failed"
+            return row
 
     if dry_run:
         for host, cmd in host_cmds.items():
