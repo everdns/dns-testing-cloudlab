@@ -37,7 +37,9 @@ from max_sustainable_qps import (get_clients, scp_to, ssh_run, start_dns_service
 
 log = logging.getLogger("validity")
 
-REMOTE_DIR = "/tmp/campaign_probe"
+# /var/tmp survives reboots (open-mode changes may reboot the server); the
+# files are still checked before every measurement and copied again if gone.
+REMOTE_DIR = "/var/tmp/campaign_probe"
 PROBE_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dns_probe.py")
 DEFAULT_STATE_DIR = os.path.expanduser("~/campaign/validity")
 # An idle server must answer at least this share of the probe queries.
@@ -128,9 +130,14 @@ class Validator:
         return self.reference or self.capture_reference()
 
     def _push(self):
-        """Copy the probe, the load sample and the reference to the server."""
+        """Copy the probe, the load sample and the reference to the server,
+        unless they are already there (a reboot or cleanup may remove them)."""
         if self._pushed:
-            return
+            files = ["dns_probe.py", "load_sample.txt"] + (["reference.json"] if self.reference else [])
+            check = " && ".join(f"test -s {REMOTE_DIR}/{f}" for f in files)
+            if ssh_run(self.server, check, timeout=60).returncode == 0:
+                return
+            log.warning("Probe files are missing on %s; copying them again", self.server)
         os.makedirs(self.state_dir, exist_ok=True)
         sample = os.path.join(self.state_dir, "load_sample.txt")
         with open(sample, "w") as f:

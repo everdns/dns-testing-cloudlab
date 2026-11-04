@@ -44,6 +44,7 @@ from max_sustainable_qps import (TOOLS, client_interface_for, get_clients,
                                  wait_for_dns_ready)
 from search import row_qps
 from servers import ServerConfigError
+from servers.base import deploy_ns_software
 
 log = logging.getLogger("source_tools")
 
@@ -178,6 +179,9 @@ class SourceEvaluator(OpenEvaluator):
         if result.returncode != 0:
             raise ServerConfigError(f"could not activate build {build_id}: "
                                     f"{(result.stderr or result.stdout).strip()[-500:]}")
+        # A reboot (e.g. restoring a kernel command line) resets the server's
+        # /local/repository, removing ns_software/custom_server.
+        deploy_ns_software(self.server)
         self.adapter.install_custom_server(self.server)
         super()._apply(overrides, run_dir)
 

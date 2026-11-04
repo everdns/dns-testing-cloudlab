@@ -38,6 +38,24 @@ class ServerConfigError(Exception):
     pass
 
 
+def deploy_ns_software(server):
+    """Copy this checkout's ns_software/ and top-level service scripts to the
+    name server's /local/repository. CloudLab resets that checkout to the
+    profile's commit whenever the node reboots, which removes newer pieces such
+    as ns_software/custom_server, so callers run this again after reboots.
+    Returns True on success."""
+    result = subprocess.run(
+        ["rsync", "-a", "--rsync-path", "sudo rsync",
+         "-e", "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new",
+         "--include", "ns_software/***", "--include", "*.sh", "--exclude", "*",
+         f"{REPO_ROOT}/", f"{server}:/local/repository/"],
+        capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        log.warning("Could not deploy ns_software to %s: %s", server,
+                    result.stderr.strip()[-300:])
+    return result.returncode == 0
+
+
 class ServerAdapter:
     name = ""               # ns_software/<name>
     process = ""            # process name, for perf and pidof

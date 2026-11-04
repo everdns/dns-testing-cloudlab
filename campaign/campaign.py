@@ -61,6 +61,7 @@ import validity  # noqa: E402
 from agent_tools import OpenEvaluator, decode_change, encode_change  # noqa: E402
 from max_sustainable_qps import get_clients, ssh_run  # noqa: E402
 from servers import get_adapter  # noqa: E402
+from servers.base import deploy_ns_software  # noqa: E402
 
 log = logging.getLogger("campaign")
 
@@ -362,18 +363,11 @@ class Campaign:
 
     def deploy_repo(self):
         """Copy this checkout's ns_software/ and service scripts to the name
-        server's /local/repository, so it has the source-build services."""
+        server's /local/repository, so it has the source-build services. Run
+        before every step: a reboot resets the server's checkout."""
         if self.simulate:
             return
-        result = subprocess.run(
-            ["rsync", "-a", "--rsync-path", "sudo rsync",
-             "-e", "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new",
-             "--include", "ns_software/***", "--include", "*.sh", "--exclude", "*",
-             f"{REPO}/", f"{self.server}:/local/repository/"],
-            capture_output=True, text=True, timeout=600)
-        if result.returncode != 0:
-            log.warning("Could not deploy ns_software to %s: %s", self.server,
-                        result.stderr.strip()[-300:])
+        deploy_ns_software(self.server)
 
     def expiry_check(self):
         text = None
@@ -556,6 +550,7 @@ class Campaign:
 
     def run_step(self, step, software):
         import phases
+        self.deploy_repo()
         exp = Experiment(self, step, software)
         self.state["current"] = {"id": exp.id, "started": exp.started.isoformat()}
         self.save_state()
