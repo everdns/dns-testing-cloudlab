@@ -27,12 +27,12 @@ max_sustainable_qps:
   initial_qps: 100000
   min_qps_step: 10000
   max_qps: 3000000
-  num_trials: 5
-  min_passes: 4
-  trial_duration: 30
+  num_trials: 10
+  min_passes: 9
+  trial_duration: 60
   answer_rate_threshold: 99.0
   min_qps_fidelity_pct: 99.0
-  collectl: false
+  collectl: true
   collectl_margin: 3
 
 agent:
