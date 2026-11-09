@@ -13,6 +13,14 @@ Steps (phases.py):
              whenever it is due (calibrate.every_hours)
   explore    the open-mode Claude agent, tagging every change with catalog
              knobs; candidates near the best are then re-measured
+  plan_space a Claude session turns the open-mode results and the hardware
+             facts into this environment's search space: catalog knobs with
+             grid values and bounds (optimization/knob_space.py), saved to
+             search_space/<software>.yaml
+  grid       no LLM: coordinate descent over the planned grid values, starting
+             at the best open-mode values (grid_search.yaml's measurement
+             settings)
+  bounded    the bounded-mode Claude agent, within the planned bounds
   attribute  no LLM: for the best valid knob set B, measure baseline + k and
              B - k for every knob k, with replicates, in shuffled order
   factorial  no LLM: two-level fractional factorial over the top portable knobs
@@ -53,6 +61,7 @@ sys.path.insert(0, HERE)
 import yaml  # noqa: E402
 
 import host_state  # noqa: E402
+import knob_space  # noqa: E402
 import knobs as knobs_mod  # noqa: E402
 import ledger as ledger_mod  # noqa: E402
 import searches_reset  # noqa: E402
@@ -65,8 +74,9 @@ from servers.base import deploy_ns_software  # noqa: E402
 
 log = logging.getLogger("campaign")
 
-LLM_STEPS = ("explore", "source")
-STEPS = ("calibrate", "explore", "attribute", "factorial", "source")
+LLM_STEPS = ("explore", "plan_space", "bounded", "source")
+STEPS = ("calibrate", "explore", "plan_space", "grid", "bounded", "attribute",
+         "factorial", "source")
 HEALTH_RETRY_S = 600
 EXIT_RESTORE_FAILED = 3
 
@@ -163,16 +173,23 @@ class Campaign:
         self.ledger_path = os.path.join(self.state_dir, "ledger.jsonl")
         self.state = self._load_state()
 
-        search_path = self.cfg.get("search_config", "../optimization/agent_search.yaml")
-        if not os.path.isabs(search_path):
-            search_path = os.path.normpath(os.path.join(HERE, search_path))
-        with open(search_path) as f:
-            self.search_config = yaml.safe_load(f)
+        self.search_config = self._load_search_config(
+            "search_config", "../optimization/agent_search.yaml")
+        # The grid step measures with grid_search.yaml's max_sustainable_qps.
+        self.grid_config = self._load_search_config(
+            "grid_config", "../optimization/grid_search.yaml")
         self.server = self.search_config["hosts"]["server"]
         self.clients = get_clients(self.search_config)
         self.catalog = knobs_mod.load()
         self.facts = self.state.get("facts") or {}
         self._validators = {}
+
+    def _load_search_config(self, key, default):
+        path = self.cfg.get(key, default)
+        if not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(HERE, path))
+        with open(path) as f:
+            return yaml.safe_load(f)
 
     # -- state --------------------------------------------------------------
 
@@ -199,8 +216,13 @@ class Campaign:
 
     # -- measurement building blocks ----------------------------------------
 
-    def measurement_config(self, software, service=None):
+    def measurement_config(self, software, service=None, qps_from=None):
+        """The search config for one measurement of ``software``. ``qps_from``
+        (a loaded search config, e.g. self.grid_config) supplies the
+        max_sustainable_qps settings instead of search_config."""
         config = copy.deepcopy(self.search_config)
+        if qps_from is not None:
+            config["max_sustainable_qps"] = copy.deepcopy(qps_from["max_sustainable_qps"])
         adapter = get_adapter(software)
         config["dns_service"] = service or adapter.package_service
         cap = self.state.get("max_qps_cap")
@@ -227,11 +249,12 @@ class Campaign:
             self._validators[software] = v
         return self._validators[software]
 
-    def open_evaluator(self, exp, results_name, service=None, cls=None, **kwargs):
+    def open_evaluator(self, exp, results_name, service=None, cls=None, qps_from=None,
+                       **kwargs):
         """An OpenEvaluator (host_state restore) for this experiment; in
         --simulate a SimEvaluator."""
         adapter = get_adapter(exp.software)
-        config = self.measurement_config(exp.software, service)
+        config = self.measurement_config(exp.software, service, qps_from)
         common = dict(adapter=adapter, validator=self.validator(exp.software),
                       ledger=self.ledger(exp), catalog=self.catalog, **kwargs)
         timeout = self.cfg.get("point_timeout", 21600)
@@ -243,11 +266,11 @@ class Campaign:
         return cls(config, self.server, adapter.load_base(), baseline, exp.dir,
                    results_name, timeout, **common)
 
-    def warm_start(self, evaluator, expect):
+    def warm_start(self, evaluator, expect, qps_from=None):
         """Start the next QPS search near ``expect`` (0.8x, ramp x1.25), or
         from the configured defaults when nothing is known."""
         section = evaluator.config["max_sustainable_qps"]
-        default = self.search_config["max_sustainable_qps"]
+        default = (qps_from or self.search_config)["max_sustainable_qps"]
         step = int(section["min_qps_step"])
         if expect:
             section["initial_qps"] = max(step, int(0.8 * expect) // step * step)
@@ -316,6 +339,16 @@ class Campaign:
             if best[1] is None or m > best[1]:
                 best = (knobs, m, len(values))
         return best
+
+    def space_path(self, software):
+        return os.path.join(self.state_dir, "search_space", f"{software}.yaml")
+
+    def search_space(self, software):
+        """The planned search space of ``software`` (plan_space), or None."""
+        path = self.space_path(software)
+        if not os.path.exists(path):
+            return None
+        return knob_space.load(path)
 
     def inbox(self, name):
         path = os.path.join(self.state_dir, "inbox", name)
@@ -480,7 +513,8 @@ class Campaign:
                   and os.path.exists(os.path.expanduser("~/.claude/.credentials.json")))
         if not ok and not self.state.get("llm_unconfigured_logged"):
             log.warning("Claude is not set up on this node (install Claude Code and run "
-                        "`claude` once to log in); explore and source steps wait until it is")
+                        "`claude` once to log in); the LLM steps (%s) wait until it is",
+                        ", ".join(LLM_STEPS))
             self.state["llm_unconfigured_logged"] = True
         elif ok:
             self.state.pop("llm_unconfigured_logged", None)
@@ -522,7 +556,7 @@ class Campaign:
         software = self.current_software()
         if self.calibrate_due(software):
             return "calibrate", software
-        cycle = self.cfg.get("cycle") or ["explore", "attribute", "factorial", "source"]
+        cycle = self.cfg.get("cycle") or [s for s in STEPS if s != "calibrate"]
         for offset in range(len(cycle)):
             index = (self.state.get("step_index", 0) + offset) % len(cycle)
             step = cycle[index]

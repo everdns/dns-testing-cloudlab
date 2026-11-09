@@ -5,6 +5,7 @@
 
 env: CHANGE_ME              # hardware type of this environment, e.g. rs620, d710, r320
 search_config: ../optimization/agent_search.yaml   # relative to this file
+grid_config: ../optimization/grid_search.yaml      # its max_sustainable_qps is used by grid
 state_dir: ~/campaign        # ledger, experiments, state, inbox, STOP/ALERT files
 
 # When the CloudLab experiment expires (ISO 8601, UTC). The laptop's
@@ -19,7 +20,7 @@ software: [bind]
 # One cycle runs these steps in order, then starts over. calibrate runs on its
 # own whenever it is due. Steps whose prerequisites are missing are skipped;
 # LLM steps (explore, source) are deferred while Claude usage is exhausted.
-cycle: [explore, attribute, factorial, source]
+cycle: [explore, plan_space, grid, bounded, attribute, factorial, source]
 
 calibrate:
   every_hours: 24           # repeat the stock baseline this often
@@ -31,6 +32,25 @@ explore:
   max_configs: 20           # measurements per agent session
   confirm_within_sigma: 2.0 # re-measure candidates this close to the best...
   confirm_replicates: 3     # ...until they have this many runs
+
+# plan_space: Claude turns the open-mode (explore) results and the hardware
+# facts into this environment's search space for grid and bounded: catalog
+# knobs with grid values (the best open-mode value first) and bounds that fit
+# the hardware. Saved to <state_dir>/search_space/<software>.yaml; re-planned
+# every cycle.
+plan_space:
+  max_parameters: 8
+
+# grid: coordinate descent over the planned grid values, measured with
+# grid_config's max_sustainable_qps settings.
+grid:
+  max_measurements: 24      # one pass must fit (plan_space enforces it)
+  max_passes: 2
+  min_improvement_pct: 2.0  # a value must beat the current point by this much
+
+# bounded: the bounded-mode agent, within the planned bounds.
+bounded:
+  max_configs: 12
 
 attribute:
   replicates: 3

@@ -287,7 +287,110 @@ class ValidityResultTest(unittest.TestCase):
         self.assertFalse(h.result()["ok"])  # checks that never ran do not pass
 
 
+class KnobSpaceTest(unittest.TestCase):
+    def setUp(self):
+        import knob_space
+        self.ks = knob_space
+        self.catalog = knobs.load()
+        self.facts = {"iface": "eth1", "cpus": 8}
+        self.good = [
+            {"knob": "rmem_max", "values": [16777216, "default", 67108864],
+             "min": 4194304, "max": 134217728, "rationale": "helped in explore"},
+            {"knob": "gro_off", "values": [True, False], "rationale": "r"},
+            {"knob": "workers", "values": ["cpus", 4], "min": 2, "max": 8, "rationale": "r"},
+            {"knob": "netdev_budget", "values": ["600/4000", "default"],
+             "min": [300, 2000], "max": [3000, 16000], "rationale": "r"},
+        ]
+
+    def build(self, entries, budget=24):
+        return self.ks.build_space(self.catalog, "bind", self.facts, entries, 8, budget)
+
+    def test_accepts_and_normalizes(self):
+        params, errors = self.build(self.good)
+        self.assertEqual(errors, [])
+        by_name = {p["name"]: p for p in params}
+        self.assertEqual(by_name["rmem_max"]["values"], [16777216, "default", 67108864])
+        self.assertEqual(by_name["gro_off"]["values"], ["true", "false"])
+        self.assertEqual(by_name["workers"]["values"], [8, 4])
+        self.assertEqual(by_name["gro_off"]["agent"]["choices"], ["false", "true"])
+        self.assertIn("helped in explore", by_name["rmem_max"]["agent"]["description"])
+
+    def test_rejects(self):
+        cases = [
+            [{"knob": "mitigations_off", "values": [True, False], "rationale": "r"}],
+            [{"knob": "rmem_max", "values": [16777216, "default"], "min": 10,
+              "max": 67108864, "rationale": "r"}],                       # below catalog min
+            [{"knob": "workers", "values": [16, 4], "min": 2, "max": 8,
+              "rationale": "r"}],                                         # outside planned max
+            [{"knob": "gro_off", "values": [True], "rationale": "r"}],     # one value
+            [{"knob": "rx_ring", "values": ["max", "default"], "rationale": "r"}],  # 1 param
+        ]
+        for entries in cases:
+            _, errors = self.build(entries)
+            self.assertTrue(errors, entries)
+        _, errors = self.build(self.good, budget=4)                       # pass > budget
+        self.assertTrue(any("budget" in e for e in errors))
+
+    def test_bounded_validation(self):
+        from agent_tools import build_search_space, validate_configuration
+        params, _ = self.build(self.good)
+        space = build_search_space(params)
+        check = self.ks.value_check(self.catalog, "bind", self.facts)
+        ok, errors = validate_configuration(
+            space, {"rmem_max": 33554432, "gro_off": "true", "workers": 6,
+                    "netdev_budget": "default"}, check)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.catalog.validate(ok)[0],
+                         {"rmem_max": 33554432, "gro_off": True, "workers": 6})
+        _, errors = validate_configuration(
+            space, {"rmem_max": 268435456, "gro_off": "true", "workers": 6,
+                    "netdev_budget": "default"}, check)
+        self.assertTrue(errors)
+
+
 class SimulatedCampaignTest(unittest.TestCase):
+    def test_plan_space_grid_and_bounded_tools(self):
+        import yaml
+        import campaign as campaign_mod
+        import phases
+        from agent_tools import SearchTools, Transcript, build_search_space
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"env": "simtest", "state_dir": d,
+                   "search_config": os.path.join(HERE, "agent_search.yaml"),
+                   "grid_config": os.path.join(HERE, "grid_search.yaml"),
+                   "cycle": ["explore", "plan_space", "grid"],
+                   "explore": {"max_configs": 4},
+                   "grid": {"max_measurements": 12, "max_passes": 1}}
+            path = os.path.join(d, "campaign.yaml")
+            with open(path, "w") as f:
+                yaml.safe_dump(cfg, f)
+            ctx = campaign_mod.Campaign(path, simulate=True)
+            self.assertEqual(ctx.run(max_experiments=4), 0)
+            steps = [(h["step"], h["status"]) for h in ctx.state["history"]]
+            self.assertEqual(steps, [("calibrate", "ok"), ("explore", "ok"),
+                                     ("plan_space", "ok"), ("grid", "ok")])
+            space = ctx.search_space("bind")
+            self.assertTrue(space["parameters"])
+            grid_rows = [r for r in ledger.read(ctx.ledger_path) if r["phase"] == "grid"]
+            self.assertTrue(grid_rows)
+            self.assertTrue(all(ledger.usable(r) for r in grid_rows))
+
+            # bounded: SearchTools over the planned space, measuring through KnobPoints
+            exp = campaign_mod.Experiment(ctx, "bounded", "bind")
+            evaluator = ctx.open_evaluator(exp, "agent_results")
+            points = phases.KnobPoints(ctx, evaluator, "bind", budget=2)
+            tools = SearchTools(build_search_space(space["parameters"]), points, {}, 2,
+                                Transcript(os.path.join(exp.dir, "t.jsonl")), ctx.server,
+                                check=__import__("knob_space").value_check(
+                                    ctx.catalog, "bind", ctx.facts))
+            start = {p["name"]: p["values"][0] for p in space["parameters"]}
+            text, is_error = tools.call("measure_configuration",
+                                        {"configuration": start, "hypothesis": "h"})
+            self.assertFalse(is_error, text)
+            self.assertEqual(json.loads(text)["configuration"], start)
+            row = next(iter(evaluator.rows.values()))
+            self.assertEqual(json.loads(row["knobs"]), ctx.catalog.validate(start)[0])
+
     def test_calibrate_explore_attribute(self):
         import yaml
         import campaign as campaign_mod

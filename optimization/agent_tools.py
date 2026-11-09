@@ -233,9 +233,20 @@ def _normalize(spec, value):
     return f"{first}/{second}"
 
 
-def validate_configuration(space, configuration):
+def render_check(name, value):
+    """Dry render of one parameter value: the same code that builds the real
+    change on the server. Raises BindConfigError or SystemConfigError."""
+    if system_config.is_system_parameter(name):
+        system_config.render_commands({name: value})
+    else:
+        bind_config.render_statement(name, value)
+
+
+def validate_configuration(space, configuration, check=render_check):
     """Return (normalized configuration, errors). The configuration is ordered
-    like the search space; errors is empty when it is usable."""
+    like the search space; errors is empty when it is usable. ``check(name,
+    value)`` raises for a value that cannot be applied (default: the BIND /
+    system_config dry render; knob_space.py passes a knobs.yaml render)."""
     if not isinstance(configuration, dict):
         return {}, ["configuration must be an object mapping parameter names to values"]
     errors = []
@@ -253,13 +264,9 @@ def validate_configuration(space, configuration):
         except ValueError as e:
             errors.append(str(e))
             continue
-        # Dry render: the same code that builds the real change on the server.
         try:
-            if system_config.is_system_parameter(name):
-                system_config.render_commands({name: value})
-            else:
-                bind_config.render_statement(name, value)
-        except (BindConfigError, SystemConfigError) as e:
+            check(name, value)
+        except (BindConfigError, SystemConfigError, KnobError) as e:
             errors.append(str(e))
             continue
         normalized[name] = value
@@ -364,8 +371,9 @@ class SearchTools:
     server only ever sees one change at a time."""
 
     def __init__(self, space, evaluator, context, max_configs, transcript,
-                 server, dry_run=False):
+                 server, dry_run=False, check=render_check):
         self.space = space
+        self.check = check   # validate_configuration's per-value dry render
         self.evaluator = evaluator
         self.context = context
         self.max_configs = max_configs
@@ -584,7 +592,7 @@ class SearchTools:
                              "finish now with your report.")
         if self.remaining() == 0:
             raise AgentError("the measurement budget is used up; call finish")
-        overrides, errors = validate_configuration(self.space, configuration)
+        overrides, errors = validate_configuration(self.space, configuration, self.check)
         if errors:
             raise AgentError("configuration rejected:\n- " + "\n- ".join(errors))
 

@@ -17,11 +17,14 @@ health check -> next step -> run it -> reset the name server -> repeat   (until 
 |---|---|---|
 | `calibrate` | no | Runs first and every 24 h. Measures the stock baseline 3× (giving the noise σ). Probes how fast the two load generators can send, and caps `max_qps` just above that. |
 | `explore` | yes | The open-mode agent (`agent_search.py --mode open`). It can change anything on the server but must tag each change with catalog knobs. Its prompt includes this environment's history and findings from the other environments. Afterwards, every change within 2σ of the best is re-measured until it has 3 runs. |
+| `plan_space` | yes | One Claude session plans this environment's search space for `grid` and `bounded`. It sees the open-mode results (best knob sets, agent reports, attribution, factorial, other environments), the hardware facts, read-only server diagnostics and the knob catalog. It picks 2–8 catalog knobs with grid values (the best open-mode value first) and bounds plausible on this hardware. `optimization/knob_space.py` checks them against the catalog and the grid budget. The result goes to `search_space/<sw>.yaml` in the `parameters:` format of `grid_search.yaml` / `agent_search.yaml`, and is re-planned every cycle. |
+| `grid` | no | Coordinate descent (`grid_search.run_coordinate_descent`) over the planned grid values. It starts at the best open-mode values and is measured with `grid_search.yaml`'s `max_sustainable_qps` settings. The budget is `grid.max_measurements`. |
+| `bounded` | yes | The bounded-mode agent (`agent_tools.SearchTools`) over the planned knobs. It may use any value within the planned bounds, with the grid values as suggestions. |
 | `attribute` | no | Takes the best valid knob set B. For each knob k it measures baseline + k (single-add) and B − k (leave-one-out), 3 replicates each, plus B and the baseline. Measurements run in a shuffled order. The output is each knob's effect as % of baseline, with a 95% bootstrap CI. |
 | `factorial` | no | Picks up to 8 portable knobs: the top ones from every environment (via the inbox) plus this environment's attribution. Runs them as a 16-run resolution IV design, 3 replicates. Main effects are comparable across hardware; two-factor interactions are reported as alias chains. |
 | `source` | yes | Rotates through bind, knot and nsd. Checks out the source tag matching the installed version and builds it with fixed flags. Measures that unpatched build 3×, then lets the source agent profile, patch, build, check and measure. The host stays fixed at the environment's best non-reboot knob set. |
 
-The cycle is `explore, attribute, factorial, source` (set by `cycle` in `campaign.yaml`). When Claude usage runs out (the `agent.max_*_usage` limits), the LLM steps wait `agent.backoff_hours` and the measurement-only steps keep running.
+The cycle is `explore, plan_space, grid, bounded, attribute, factorial, source` (set by `cycle` in `campaign.yaml`). Measurements of the grid and bounded steps use the same catalog rendering, host restore, validity gate and ledger as every other step, so the steps' results feed attribution and the cross-hardware analysis. When Claude usage runs out (the `agent.max_*_usage` limits), the LLM steps wait `agent.backoff_hours` and the measurement-only steps keep running.
 
 ## Rules every measurement follows
 
@@ -105,6 +108,7 @@ python3 analysis/importance.py --ledger leaderboard/campaign_data/legacy/ledger.
 | `ledger.jsonl` | Every measurement (schema in `optimization/ledger.py`) |
 | `state.json` | Scheduler position, noise estimates, latest attribution and factorial, history |
 | `experiments/<NNNN>_<step>_<sw>/` | Per-step output: `experiment.json`, `plan.json` / `design.json`, `attribution.json` / `factorial.json`, agent transcripts and reports, `patches/` for source steps, per-measurement run directories |
+| `search_space/<sw>.yaml` | The latest planned space for `grid` and `bounded`, with the planner's rationale per knob |
 | `knobs_proposed.jsonl` | Techniques agents found that the catalog lacks: review them and add the good ones to `optimization/knobs.yaml` |
 | `validity/` | Reference answers and query samples per server software |
 | `src/<sw>/` | Source checkouts used by the source agent |

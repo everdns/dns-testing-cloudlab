@@ -198,6 +198,273 @@ def _explore_simulated(ctx, exp, max_configs):
 
 
 # ---------------------------------------------------------------------------
+# plan_space, grid, bounded: searches over a planned knob space
+# ---------------------------------------------------------------------------
+
+class KnobPoints:
+    """Evaluator for {knob: value} points (grid_search.run_coordinate_descent,
+    agent_tools.SearchTools). Each point is rendered through the catalog and
+    measured by the campaign's OpenEvaluator, so it gets the same host_state
+    restore, validity gate and ledger record as every other step. Raises
+    AgentError when the budget is used or STOP is set."""
+
+    def __init__(self, ctx, evaluator, software, budget, expect=None, qps_from=None):
+        self.ctx = ctx
+        self.evaluator = evaluator
+        self.software = software
+        self.budget = budget
+        self.expect = expect
+        self.qps_from = qps_from
+
+    @property
+    def rows(self):
+        return self.evaluator.rows
+
+    def evaluate(self, overrides, label, extra=None, pid=None):
+        from agent_tools import AgentError, encode_change
+        from search import point_id
+        pid = pid or point_id(overrides)
+        if pid in self.rows:
+            return self.rows[pid]
+        if os.path.exists(self.ctx.flag("STOP")):
+            raise AgentError("the campaign is stopping (STOP); no more measurements")
+        if len(self.rows) >= self.budget:
+            raise AgentError(f"the budget of {self.budget} measurements is used up")
+        knobs, errors = self.ctx.catalog.validate(overrides)
+        if errors:
+            raise AgentError("; ".join(errors))
+        rendered = self.ctx.catalog.render(knobs, self.software, self.ctx.facts)
+        change = encode_change(pid, rendered["named_options"], rendered["host_commands"],
+                               [], rendered["reboot_after_apply"], knobs)
+        self.ctx.warm_start(self.evaluator, self.expect, self.qps_from)
+        # The parameter values go into the row too, for SearchTools' views.
+        return self.evaluator.evaluate(change, label, {**(extra or {}), **overrides},
+                                       pid=pid)
+
+
+def _best_open(ctx, software):
+    """(knobs, mean, runs) of the best open-mode (explore) knob set."""
+    best = (None, None, 0)
+    for key, values in ctx.by_knobs(ctx.records(software, phases=("explore",))).items():
+        knobs = json.loads(key)
+        if knobs and (best[1] is None or stats.mean(values) > best[1]):
+            best = (knobs, stats.mean(values), len(values))
+    return best
+
+
+def _open_reports(ctx, software, limit=2):
+    """Summaries of the latest open-mode agent reports of ``software``."""
+    root = os.path.join(ctx.state_dir, "experiments")
+    names = sorted((n for n in os.listdir(root) if n.endswith(f"_explore_{software}")),
+                   reverse=True) if os.path.isdir(root) else []
+    out = []
+    for name in names:
+        path = os.path.join(root, name, "agent_report.json")
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            report = json.load(f)
+        out.append(f"[{name}] recommended {report.get('recommended_point_id')} at "
+                   f"{report.get('recommended_max_qps_passed')} QPS:\n"
+                   f"{str(report.get('summary') or '')[:4000]}")
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _space_budgets(ctx):
+    grid = ctx.cfg.get("grid", {})
+    section = ctx.grid_config["max_sustainable_qps"]
+    per_level = (int(section["num_trials"]) * (int(section["trial_duration"])
+                 + int(ctx.search_config.get("pause_between_runs", 2))))
+    return {"grid_measurements": grid.get("max_measurements", 24),
+            "grid_max_passes": grid.get("max_passes", 2),
+            "bounded_measurements": ctx.cfg.get("bounded", {}).get("max_configs", 12),
+            "minutes_per_qps_level": round(per_level / 60, 1),
+            "note": "one measurement tests several QPS levels; a grid pass costs 1 "
+                    "+ the number of non-starting grid values"}
+
+
+def _plan_simulated(ctx, software, max_parameters, grid_budget):
+    """--simulate stand-in for the planner: the best open-mode knobs, each
+    with its value and the baseline, bounds around the value."""
+    import knob_space
+    knobs, _, _ = _best_open(ctx, software)
+    entries = []
+    for name, value in (knobs or {}).items():
+        spec = ctx.catalog.knobs.get(name) or {}
+        if spec.get("reboot") or not ctx.catalog.applicable(name, software):
+            continue
+        if value == "cpus":
+            value = ctx.facts.get("cpus")
+        entry = {"knob": name, "values": [value, spec["baseline"]], "rationale": "simulated"}
+        if spec["type"] == "int" and isinstance(value, int):
+            entry.update(min=max(spec["min"], value // 4), max=min(spec["max"], value * 4))
+        elif spec["type"] == "pair":
+            entry.update(min=spec["min"], max=spec["max"])
+        entries.append(entry)
+    entries = entries[:max_parameters]
+    return knob_space.build_space(ctx.catalog, software, ctx.facts, entries,
+                                  max_parameters, grid_budget)
+
+
+def plan_space(ctx, exp):
+    import knob_space
+    from agent_tools import AgentError
+    software = exp.software
+    cfg = ctx.cfg.get("plan_space", {})
+    best_knobs, best_mean, runs = _best_open(ctx, software)
+    if not best_knobs:
+        return {"status": "skipped", "skipped": "no valid open-mode (explore) result yet"}
+    max_parameters = cfg.get("max_parameters", 8)
+    budgets = _space_budgets(ctx)
+    if ctx.simulate:
+        parameters, errors = _plan_simulated(ctx, software, max_parameters,
+                                             budgets["grid_measurements"])
+        if errors:
+            return {"status": "error", "error": "; ".join(errors)}
+        report = {"software": software, "notes": "simulated", "parameters": parameters}
+    else:
+        if not ctx.ensure_software(software):
+            return {"status": "skipped", "skipped": f"{software} unavailable"}
+        ctx.fingerprint()
+        context = ctx.ledger_summary(software)
+        context += ("\n\n<best_open_mode_configuration>\n"
+                    f"{json.dumps(best_knobs, sort_keys=True)}: {round(best_mean)} QPS "
+                    f"(n={runs})\n</best_open_mode_configuration>")
+        reports = _open_reports(ctx, software)
+        if reports:
+            context += ("\n\n<open_mode_reports>\n" + "\n\n".join(reports)
+                        + "\n</open_mode_reports>")
+        factorial_result = ctx.state.get("factorial", {}).get(software)
+        if factorial_result:
+            context += ("\n\n<factorial_main_effects pct_of_reference=\"true\">\n"
+                        f"{json.dumps(factorial_result.get('main_effects_pct'))}\n"
+                        "</factorial_main_effects>")
+        static = [{"name": p["name"], "values": p.get("values")}
+                  for p in ctx.search_config.get("parameters") or []]
+        transcript = Transcript(os.path.join(exp.dir, "agent_transcript.jsonl"))
+        tools = knob_space.SpacePlanTools(ctx.catalog, software, ctx.facts, context, static,
+                                          budgets, transcript, ctx.server, max_parameters)
+        runner = ctx.make_runner(1)
+        try:
+            runner.run(tools, transcript)
+        except AgentError as e:
+            log.error("Planner stopped: %s", e)
+        exhausted = getattr(runner, "usage_exhausted", lambda: [])()
+        if exhausted:
+            ctx.pause_llm(f"usage limit reached: {exhausted}")
+        if tools.report is None:
+            return {"status": "agent_error", "error": "no search space was accepted",
+                    "deferred": bool(exhausted)}
+        report = tools.report
+    report.update(env=ctx.env, experiment=exp.id, planned=exp.started.isoformat(),
+                  best_open={"knobs": best_knobs, "mean": best_mean, "n": runs})
+    os.makedirs(os.path.dirname(ctx.space_path(software)), exist_ok=True)
+    knob_space.save(ctx.space_path(software), report)
+    knob_space.save(os.path.join(exp.dir, "search_space.yaml"), report)
+    return {"status": "ok", "parameters": {p["name"]: p["values"]
+                                           for p in report["parameters"]}}
+
+
+def grid(ctx, exp):
+    from agent_tools import AgentError
+    from grid_search import run_coordinate_descent
+    software = exp.software
+    cfg = ctx.cfg.get("grid", {})
+    space = ctx.search_space(software)
+    if not space:
+        return {"status": "skipped", "skipped": "no planned search space yet (plan_space)"}
+    parameters = space["parameters"]
+    _write(exp, "search_space.json", space)
+    _, expect, _ = _best_open(ctx, software)
+    evaluator = ctx.open_evaluator(exp, "coordinate_descent_results",
+                                   qps_from=ctx.grid_config)
+    points = KnobPoints(ctx, evaluator, software, cfg.get("max_measurements", 24),
+                        expect=expect, qps_from=ctx.grid_config)
+    outcome = {"status": "ok"}
+    try:
+        try:
+            best = run_coordinate_descent(points, parameters, cfg.get("max_passes", 2),
+                                          cfg.get("min_improvement_pct", 2.0))
+            outcome["final_point"] = best and best[0]
+        except AgentError as e:
+            log.info("Coordinate descent stopped: %s", e)
+            outcome["stopped"] = str(e)
+        outcome["confirmed"] = _confirm(ctx, evaluator, software)
+    finally:
+        evaluator.export()
+        evaluator.restore_host()
+    scored = [(q, pid) for pid, row in evaluator.rows.items() if (q := _qps(row))]
+    outcome.update(best_qps=max(scored)[0] if scored else None,
+                   best_point=max(scored)[1] if scored else None,
+                   measurements=len(evaluator.rows))
+    return outcome
+
+
+BOUNDED_NOTE = """
+In this search the parameters are knobs of the campaign's catalog, chosen and \
+bounded for this hardware from what an open-mode agent found: Linux, NIC and \
+CPU settings as well as server settings. Each parameter's description says \
+why it was chosen. "default" (or false) leaves the knob at the stock setting. \
+The first suggested value of every parameter is the best open-mode setting, \
+so the first suggested values together are the best known configuration.
+"""
+
+
+def bounded(ctx, exp):
+    from agent_search import CONTEXT_KEYS, write_report
+    from agent_tools import SYSTEM_PROMPT, AgentError, SearchTools, build_search_space
+    import knob_space
+    software = exp.software
+    cfg = ctx.cfg.get("bounded", {})
+    space_doc = ctx.search_space(software)
+    if not space_doc:
+        return {"status": "skipped", "skipped": "no planned search space yet (plan_space)"}
+    if ctx.simulate:
+        return {"status": "skipped", "skipped": "bounded needs the agent", "deferred": False}
+    if not ctx.ensure_software(software):
+        return {"status": "skipped", "skipped": f"{software} unavailable"}
+    _write(exp, "search_space.json", space_doc)
+    space = build_search_space(space_doc["parameters"])
+    max_configs = cfg.get("max_configs", 12)
+    _, expect, _ = _best_open(ctx, software)
+    evaluator = ctx.open_evaluator(exp, "agent_results")
+    points = KnobPoints(ctx, evaluator, software, max_configs, expect=expect)
+    config = ctx.measurement_config(software)
+    transcript = Transcript(os.path.join(exp.dir, "agent_transcript.jsonl"))
+    tools = SearchTools(space, points,
+                        context={**{k: config[k] for k in CONTEXT_KEYS if k in config},
+                                 "env": ctx.env, "server_facts": ctx.facts,
+                                 "planner_notes": space_doc.get("notes")},
+                        max_configs=max_configs, transcript=transcript, server=ctx.server,
+                        check=knob_space.value_check(ctx.catalog, software, ctx.facts))
+    tools.system_prompt = SYSTEM_PROMPT + BOUNDED_NOTE
+    runner = ctx.make_runner(max_configs)
+    outcome = {"status": "ok"}
+    try:
+        try:
+            runner.run(tools, transcript)
+        except AgentError as e:
+            log.error("Agent stopped: %s", e)
+            outcome = {"status": "agent_error", "error": str(e)}
+        exhausted = getattr(runner, "usage_exhausted", lambda: [])()
+        if exhausted:
+            ctx.pause_llm(f"usage limit reached: {exhausted}")
+        outcome["confirmed"] = _confirm(ctx, evaluator, software)
+    finally:
+        evaluator.export()
+        evaluator.restore_host()
+    write_report(tools, exp.dir)
+    best = tools.best()
+    outcome.update(best_qps=best[1] if best else None, measurements=len(evaluator.rows),
+                   recommended=(tools.report or {}).get("recommended_point_id"))
+    if not evaluator.rows and outcome["status"] != "ok":
+        outcome["deferred"] = True
+    return outcome
+
+
+# ---------------------------------------------------------------------------
 # attribute (no LLM)
 # ---------------------------------------------------------------------------
 

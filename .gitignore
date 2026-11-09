@@ -6,3 +6,8 @@ cloudlab_token
 .claude*
 campaign/envs.yaml
 analysis/
+setup_prompt
+.vscode
+*.html
+leaderboard/campaign_data/
+*.png
